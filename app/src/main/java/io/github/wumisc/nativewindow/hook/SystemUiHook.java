@@ -248,6 +248,13 @@ public final class SystemUiHook {
             Object mode = XposedHelpers.callMethod(config, "getWindowingMode");
             if (mode instanceof Integer) return (Integer) mode;
         } catch (Throwable ignored) {}
+        // 最后兜底：TaskInfo.isFreeform() 在 Android 17 仍然存在。
+        try {
+            Object free = XposedHelpers.callMethod(info, "isFreeform");
+            if (free instanceof Boolean && (Boolean) free) {
+                return SmallWindowBridge.WINDOWING_MODE_FREEFORM;
+            }
+        } catch (Throwable ignored) {}
         return 0;
     }
 
