@@ -4,70 +4,164 @@
 > 目标设备：**PixelOS 17 / LineageOS 17**（Android 17，API 37）。  
 > 形态：**LSPosed + Root**，AGPL-3.0。
 
-## 这是什么
+## 0.3.0-deep 做了什么
 
-一个把「国产 UI 的小窗体验」拆成可组合层的实验项目：
+0.2.0 只有“视觉基线 + 菜单骨架”；0.3.0 把链路接进了 Android 17 的真实 freeform：
 
-- **入口层**：启动器长按、最近任务菜单、底角扇形、侧边栏。
-- **动画层**：自研物理弹簧，不用 `ViewPropertyAnimator` 的默认曲线。
-- **窗口层**：AOSP `WINDOWING_MODE_FREEFORM`；迷你/贴边用 VirtualDisplay 回退。
-- **适配层**：LOS `com.android.launcher3` 与 Pixel Launcher `com.google.android.apps.nexuslauncher` 双入口，类不存在时 fail-open。
+| 层 | 0.3.0 实现 |
+|---|---|
+| 开窗 | Launcher 进程直接调用 `IActivityTaskManager.startActivityFromRecents(taskId, Bundle)`，Bundle 写 `android.activity.windowingMode=5`（FREEFORM）与 `android:activity.launchBounds` |
+| 系统门禁 | system_server 在 `ActivityTaskManagerService#retrieveSettings` **之后** 打开 `mSupportsMultiWindow`、`mSupportsFreeformWindowManagement`、`mForceResizableActivities`、`mDevEnableNonResizableMultiWindow` |
+| 原生 caption | Hook `CaptionWindowDecorViewModel#shouldShowWindowDecor`，freeform 返回 false，避免 AOSP 标题栏和 HyperOS 胶囊叠两层 |
+| 任务 chrome | `TaskChromeService` 贴在 SystemUI 上报的真实 Task bounds 上：顶部胶囊 + 底部把手，不再画假卡片 |
+| 移动 / 缩放 | App 把新 bounds 发给 SystemUI；`SystemUiHook` 用 `WindowContainerTransaction#setBounds` 调 `ShellTaskOrganizer#applyTransaction` |
+| 迷你 / 全屏 / 关闭 | `setBounds` 到迷你尺寸；`setWindowingMode(FULLSCREEN)`；`IActivityTaskManager.removeTask(taskId)` |
+| 最近任务菜单 | Hook `TaskOverlayFactory#getEnabledShortcuts`，追加 `RemoteActionShortcut`；PendingIntent 落到 **Launcher 进程** 的动态接收器，而不是模块 App |
+| 动画 | `SpringAnimator` 自研半隐式欧拉弹簧；胶囊开窗、缩放、迷你切换都用它 |
 
-当前不是成品。`0.2.0-alpha` 先交付**可安装的视觉基线 + 动画/最近任务/桌面入口骨架**；系统级窗口控制器、WCT 拖动缩放、SystemUI chrome、VirtualDisplay 迷你/贴边仍在推进。
+## 从源码读出来的关键结论
+
+这些不是猜的，是从 Android 17 源码里核对出来的；0.2.0 有两个会直接导致真机失败的硬错误。
+
+### 1. `WINDOWING_MODE_FREEFORM` 是 5，不是 1
+
+`android/app/WindowConfiguration.java`：
+
+```java
+public static final int WINDOWING_MODE_FREEFORM = 5;
+```
+
+0.2.0 的 `SmallWindowBridge` 把 `1` 当 freeform；`1` 实际是 `WINDOWING_MODE_FULLSCREEN`。结果就是“点了小窗，App 全屏”。0.3.0 已改成 `5`。
+
+### 2. `startActivityFromRecents` 的第二个参数是 Bundle
+
+`IActivityTaskManager.aidl`：
+
+```java
+int startActivityFromRecents(int taskId, in Bundle options);
+```
+
+0.2.0 反射 `startActivityFromRecents(int, ActivityOptions)` 会 `NoSuchMethodException`。0.3.0 改为：
+
+```java
+ActivityOptions options = ActivityOptions.makeBasic();
+options.setLaunchBounds(bounds);
+Bundle bundle = options.toBundle();
+bundle.putInt("android.activity.windowingMode", 5);
+bundle.putParcelable("android:activity.launchBounds", bounds);
+```
+
+### 3. freeform 开关必须在 `retrieveSettings` 之后改
+
+`ActivityTaskManagerService#retrieveSettings` 会根据 config 重算：
+
+```java
+if ((supportsMultiWindow || forceResizable) && multiWindowFormEnabled) {
+    mSupportsMultiWindow = true;
+    mSupportsFreeformWindowManagement = freeformWindowManagement;
+    ...
+}
+```
+
+0.2.0 只挂构造和 `onSystemReady`，会被 `retrieveSettings` 覆盖。0.3.0 直接挂 `retrieveSettings(ContentResolver)` 的 after。
+
+### 4. freeform 还要过 `TaskDisplayArea` 与 `Task.supportsFreeform`
+
+`Task.supportsFreeformInDisplayArea` 要求：
+
+```java
+tda.isWindowingModeSupported(WINDOWING_MODE_FREEFORM,
+        mAtmService.mSupportsMultiWindow,
+        mAtmService.mSupportsFreeformWindowManagement,
+        mAtmService.mSupportsPictureInPicture)
+&& supportsMultiWindowInDisplayArea(tda)
+```
+
+非 resizeable 的国产 App 还要靠 `mForceResizableActivities` / `mDevEnableNonResizableMultiWindow` / `mSupportsNonResizableMultiWindow=1`，否则会被 letterbox 或拒绝。
+
+### 5. AOSP 17 的 freeform caption 在 WMShell，不在 SystemUI 的 PhoneWindowManager
+
+`com.android.wm.shell.windowdecor.CaptionWindowDecorViewModel#shouldShowWindowDecor`：
+
+```java
+if (taskInfo.getWindowingMode() == WINDOWING_MODE_FREEFORM) {
+    return true;
+}
+```
+
+它会给每个 freeform Task 画 `CaptionWindowDecoration`。0.3.0 把它关掉，用 `TaskChromeService` 的胶囊替代。
+
+### 6. 任务边界修改的系统入口是 `ShellTaskOrganizer` + WCT
+
+`ShellTaskOrganizer` 同时是 `TaskOrganizer`：
+
+```java
+public void applyTransaction(@NonNull WindowContainerTransaction t)
+```
+
+`WindowContainerTransaction#setBounds(WindowContainerToken, Rect)` / `setWindowingMode(WindowContainerToken, int)` 是移动、缩放、切全屏的底层入口。App 没有 token，也拿不到 `ShellTaskOrganizer`，所以这些动作必须在 SystemUI 进程做。
+
+### 7. Pixel Launcher 没有可读源码，但类名在 Android 17 上仍存活
+
+PixelOS manifest：
+
+```xml
+<project path="packages/apps/Launcher3" name="platform/packages/apps/Launcher3" />
+<project path="vendor/pixel/launcher" name="PixelOS-AOSP/proprietary_vendor_pixel_launcher" />
+```
+
+`NexusLauncherRelease` 的 `Android.bp`：
+
+```bp
+android_app_import {
+    name: "NexusLauncherRelease",
+    overrides: ["Launcher3", "Launcher3QuickStep", "TrebuchetQuickStep"],
+}
+```
+
+即 PixelOS 实际桌面是预编译 Pixel Launcher，**没有 Pixel Launcher 的 Java 源码**。但 `PixelLauncherEvolved` 在 Pixel 8 Pro / Android 17（`CP3A.260905.009`）上的 DEX 审计确认：
+
+- `com.android.quickstep.TaskOverlayFactory` 仍存在；
+- `com.android.launcher3.popup.RemoteActionShortcut` 仍存在；
+- `TaskOverlayFactory$TaskOverlay`、`TaskShortcutFactory$2/$3.getShortcuts` 仍存在。
+
+所以 0.3.0 先按类名 Hook；类名真的被 R8 改掉时，下一步接 DexKit 指纹，不假装已经支持。
+
+### 8. Launcher 持有任务权限，模块 App 没有
+
+`Launcher3/quickstep/AndroidManifest.xml`：
+
+```xml
+<uses-permission android:name="android.permission.START_TASKS_FROM_RECENTS"/>
+<uses-permission android:name="android.permission.MANAGE_ACTIVITY_TASKS"/>
+```
+
+0.2.0 把 PendingIntent 发回模块 App 的 `OpenReceiver`，App 没有签名权限，真机必然被 `enforceCallingPermission` 拒绝。0.3.0 改成：
+
+```text
+TaskOverlayFactory 菜单
+  → RemoteActionShortcut
+  → PendingIntent（Launcher UID）
+  → Launcher 进程的 TaskLaunchReceiver
+  → SmallWindowBridge.startActivityFromRecents(taskId, bundle)
+```
+
+模块 App 只负责后续 chrome 服务，不再负责开窗。
 
 ## 当前进度
 
 | 模块 | 状态 | 说明 |
 |---|---|---|
-| HyperOS 3 风格小窗预览 | ✅ 可安装 | 圆角卡片、顶部胶囊、底部把手、阴影、迷你 chip |
-| Flyme 皮肤 | ✅ 可切换 | 浅色、大圆角、不同胶囊 |
-| 自研弹簧动画 | ✅ | `anim/SpringAnimator.java`：半隐式欧拉 + 子步进 |
-| 底角扇形 | ✅ 预览 | 四分之一圆触发、7 项、左右分组、松手选择 |
-| 侧边栏 | ✅ 预览 | 边缘把手、10 项、弹簧展开 |
-| 边缘吸附 / 最小化 | ✅ 预览 | 拖到左右边缘 → 迷你 chip；点 chip 恢复 |
-| 最近任务菜单注入 | 🟡 骨架 | Hook `TaskOverlayFactory#getEnabledShortcuts`，加“小窗”动作 |
-| Pixel / LOS 启动器适配 | 🟡 骨架 | 按包名 + 类名双适配；Pixel 混淆时 fail-open |
-| system_server freeform 门禁 | 🟡 骨架 | `ActivityTaskManagerService` 字段 patch |
-| 真实 App 入窗 | ⏳ | 需要接 SystemUI/WCT 或 VirtualDisplay 内核 |
-| WCT 逐帧拖动缩放 | ⏳ | 下一阶段 |
+| HyperOS 3 chrome 预览 | ✅ | 圆角、胶囊、底部把手、迷你 chip、Flyme 皮肤 |
+| 自研弹簧动画 | ✅ | `SpringAnimator`：半隐式欧拉 + 4 子步，60/90/120/144Hz 一致 |
+| 最近任务菜单 | ✅ 代码完成，待真机 | LOS / Pixel 同一套 `TaskOverlayFactory` Hook |
+| 真实 freeform 开窗 | ✅ 代码完成，待真机 | `FREEFORM=5` + Bundle + Launcher 权限 |
+| SystemUI caption 接管 | ✅ 代码完成，待真机 | 关闭 AOSP caption，换项目胶囊 |
+| WCT 移动/缩放 | ✅ 代码完成，待真机 | `ShellTaskOrganizer#applyTransaction` |
+| 迷你/全屏/关闭 | ✅ 代码完成，待真机 | 改 bounds / 改 windowingMode / removeTask |
+| Pixel Launcher DexKit 指纹 | ⏳ | 当前按类名，R8 改名后需要 DexKit |
 | 多窗 / 分屏 / 桌面模式 | ❌ | 首版不做 |
-
-## 为什么自研动画
-
-系统默认的 `ViewPropertyAnimator` / `Interpolator` 在窗口缩放、贴边、扇形展开时会出现「轻、飘、断」：
-
-- 窗口开启要有重量感：轻微过冲后收住，不能线性放大。
-- 迷你/贴边要快、硬、可中断，不能排队。
-- 扇形要从触发点长出来，图标有先后，不是整体淡入。
-
-`SpringAnimator` 用固定子步进（4 步）跑物理弹簧，60/90/120/144Hz 下结果一致；每个属性独立弹簧，可中途反向。参数：
-
-```java
-SpringAnimator.windowOpen(p); // k=420, c=34
-SpringAnimator.snap(p);       // k=560, c=38
-SpringAnimator.radial(p);     // k=360, c=28
-```
-
-## 最近任务与启动器
-
-### LOS / Launcher3
-
-`com.android.quickstep.TaskOverlayFactory#getEnabledShortcuts` 返回 `List<SystemShortcut>`，在 after Hook 里追加一个 `RemoteActionShortcut`：
-
-- 标题：**小窗**
-- 动作：`PendingIntent` → `OpenReceiver`
-- 携带：`taskId`
-- 点击：`SmallWindowBridge.openFromTask()` 走 `ActivityTaskManager.startActivityFromRecents(taskId, freeformOptions)`
-
-### PixelOS / Pixel Launcher
-
-Pixel Launcher 基于 Launcher3，但类名可能被混淆、随 Play 更新。适配策略：
-
-1. 先按 `com.android.quickstep.TaskOverlayFactory` 查找；
-2. 找不到就保留系统自带最近任务入口；
-3. 不 crash、不 bootloop，只记 LSPosed 日志。
-
-这不是「硬改 Pixel Launcher」，而是**在它自己的菜单体系里加一项**；类名变了就 fail-open。
+| 真机回归 | ❌ | 当前环境无 adb 设备、无 emulator |
 
 ## 目录
 
@@ -75,33 +169,28 @@ Pixel Launcher 基于 Launcher3，但类名可能被混淆、随 Play 更新。�
 native-window/
 ├── app/src/main/
 │   ├── java/io/github/wumisc/nativewindow/
-│   │   ├── MainActivity.java          # 设置 / 预览入口
-│   │   ├── OverlayService.java        # 悬浮窗服务
-│   │   ├── DemoOverlay.java           # HyperOS/Flyme chrome + 扇形 + 侧栏
-│   │   ├── anim/SpringAnimator.java   # 自研物理弹簧
-│   │   ├── core/                      # WindowForm / SmallWindowRequest
+│   │   ├── MainActivity.java              # 设置 / 预览入口
+│   │   ├── OverlayService.java            # 预览悬浮窗
+│   │   ├── DemoOverlay.java               # HyperOS/Flyme 视觉基线
+│   │   ├── anim/SpringAnimator.java       # 自研物理弹簧
+│   │   ├── chrome/
+│   │   │   ├── TaskChromeService.java     # 真实任务 chrome 服务
+│   │   │   └── TaskCapsuleView.java       # 顶部胶囊
 │   │   └── hook/
-│   │       ├── ModuleEntry.java       # LSPosed 入口（根目录）
-│   │       ├── SystemServerHook.java  # freeform 门禁
-│   │       ├── LauncherHook.java      # 最近任务菜单注入
-│   │       ├── SmallWindowBridge.java # startActivityFromRecents 封装
-│   │       └── OpenReceiver.java      # 菜单动作落点
-│   ├── res/                           # 主题、图标、字符串
+│   │       ├── ModuleEntry.java           # LSPosed 入口
+│   │       ├── SystemServerHook.java      # freeform 门禁 + 权限补丁
+│   │       ├── SystemUiHook.java          # caption / TaskOrganizer / WCT
+│   │       ├── LauncherHook.java          # 最近任务菜单 + Launcher 接收器
+│   │       ├── SmallWindowBridge.java     # 正确签名的 freeform 启动
+│   │       └── OpenReceiver.java          # 拉起 chrome 服务
+│   ├── res/
 │   └── assets/xposed_init
-├── libs/api-82.jar                    # 编译用 Xposed API（不打包进 APK）
-├── scripts/build.sh                   # 无 Gradle 的本地构建
-└── dist/                              # 构建产物（.gitignore）
+├── libs/api-82.jar                        # compileOnly，不打包
+├── scripts/build.sh                       # aapt2 → javac → d8 → zipalign → apksigner
+└── dist/                                  # 构建产物（.gitignore）
 ```
 
 ## 构建
-
-### Android Studio
-
-1. 用 Android Studio 打开根目录；
-2. JDK 17+，Android SDK Platform 37；
-3. Sync 后运行 `app`。
-
-Gradle 使用 AGP `9.5.3`，`compileSdk 37`、`minSdk 34`、`targetSdk 37`。
 
 ### 命令行（不需要 Gradle）
 
@@ -109,45 +198,44 @@ Gradle 使用 AGP `9.5.3`，`compileSdk 37`、`minSdk 34`、`targetSdk 37`。
 export ANDROID_HOME=$HOME/Android/Sdk
 export JAVA_HOME=/path/to/jdk-17
 bash scripts/build.sh
-# 输出：dist/native-window-0.2.0-alpha.apk
+# 输出：dist/native-window-0.3.0-deep-alpha.apk
 ```
 
-脚本会依次执行 `aapt2 compile/link → javac → d8 → zipalign → apksigner`。
+### Android Studio
 
-## 安装
+JDK 17+、Android SDK Platform 37；AGP `9.5.3`，`compileSdk 37`、`minSdk 34`、`targetSdk 37`。
+
+## 安装与作用域
 
 1. 安装 APK；
-2. 授予「显示在其他应用上层」；
-3. 打开 App，点“显示小窗预览 / 侧边栏 / 底角扇形”；
-4. LSPosed 中启用模块，作用域：
-   - **系统框架**（`android`）：freeform 门禁；
-   - **Launcher / Quickstep**（`com.android.launcher3` 或 `com.google.android.apps.nexuslauncher`）：最近任务菜单；
-5. 重启 SystemUI / 设备。
+2. 授予「显示在其他应用上层」和通知权限；
+3. LSPosed 启用模块，作用域必须勾选：
+   - **系统框架**（`android`）：freeform 门禁、task 权限补丁；
+   - **SystemUI**（`com.android.systemui`）：caption、TaskOrganizer、WCT、命令接收；
+   - **桌面**（`com.android.launcher3` 或 `com.google.android.apps.nexuslauncher`）：最近任务菜单与开窗；
+4. 重启 SystemUI / 设备；
+5. 进最近任务，点任务菜单里的「小窗」。
 
-> 当前 `OpenReceiver` 为了跑通链路是 exported；正式版会换成 signature Binder + UID 校验，见“安全”。
+> PixelOS 上如果最近任务菜单没有出现「小窗」，先看 LSPosed 日志里 `NativeWindow/Launcher: TaskOverlayFactory not found` 还是 `RemoteActionShortcut not found`；这两种都是类名/混淆问题，不是开窗内核问题。
 
-## 适配边界
+## 适配边界与已知限制
 
-- **PixelOS 17**：Pixel Launcher 可能混淆；只做菜单注入，不替换桌面。
-- **LOS 17**：Trebuchet / Launcher3 开源，优先跑通。
-- 不用 ColorOS `OplusZoomWindowManager`、`FlexibleTaskController`、`getFlexibleZoomState`；这些在 AOSP 不存在。
-- 不复制小米/魅族/OPPO 的商标、系统图标、字体或私有素材；图标来自已安装应用。
-- 首版不做多窗、分屏、桌面模式、折叠屏/平板。
+- **没有真机/模拟器**：本环境 `adb devices` 为空，0.3.0 是源码级实现 + 静态编译通过；真机回归还未做。
+- **Pixel Launcher 没有源码**：只能按 Android 17 仍存活的类名 Hook；后续要接 DexKit 指纹和 `TaskShortcutFactory` 的 R8 名。
+- **原生 caption 全关**：`shouldShowWindowDecor` 对所有 freeform 返回 false。若 chrome 服务没起来，窗口会没有标题栏；正式版应按 taskId 只关本项目接管的窗口。
+- **chrome 是应用悬浮窗**：`TaskChromeService` 用 `TYPE_APPLICATION_OVERLAY`，需要用户授予悬浮窗权限；不是 SystemUI 内部窗口，层级和功耗还不如 SystemUI 原生实现。
+- **命令接收器**：`OpenReceiver` 仍 exported；SystemUI 的 `CommandReceiver` 目前是 `RECEIVER_EXPORTED` + 发送 UID 检查，正式版要换 signature Binder。
+- **迷你窗**：当前是“缩小 bounds”的迷你窗，不是把任务迁到 VirtualDisplay 的贴边保活；后者是 M3。
+- **国产 App 非 resizeable**：已用 `mForceResizableActivities` 强制；个别 App 会重排布局或拒绝，需要 per-app 规则。
+- **不复制 OEM 私有代码/素材**：不碰 ColorOS `OplusZoomWindowManager`、`FlexibleTaskController`、`getFlexibleZoomState`；不复制小米/魅族/OPPO 商标、系统图标、字体。
 
 ## Roadmap
 
-- **M1**：真实 App 入窗（SystemUI/WCT 或 VirtualDisplay 单槽）。
-- **M2**：WCT 逐帧拖动/缩放、旋转、关闭动画。
-- **M3**：迷你/贴边真实任务迁移，贴边保活。
-- **M4**：Pixel Launcher DexKit 指纹、LOS 图标长按菜单。
+- **M1（当前）**：PixelOS 17 / LOS 17 真机回归；freeform 开窗、caption 接管、WCT 移动缩放。
+- **M2**：DexKit 指纹，覆盖 Pixel Launcher R8 改名；`TaskShortcutFactory` 原生 freeform 菜单合并去重。
+- **M3**：迷你/贴边真实任务迁移、贴边保活、VirtualDisplay 单槽回退。
+- **M4**：侧边栏、底角扇形接到真实任务；最近任务滑动方向、关闭动画对齐 HyperOS 3。
 - **M5**：signature Binder、crash 计数、救援开关、release。
-
-## 安全
-
-- 当前 `OpenReceiver` 是 alpha 链路，正式版必须换成 **signature 权限 Binder**，校验调用方 UID/签名。
-- `SystemServerHook` 只 patch 三个布尔字段，失败只写日志。
-- 每个 Hook 独立 try/catch；Launcher 类不存在时 fail-open。
-- 发布仓库只放源码，不放 APK；构建产物只进 `dist/` 且被 `.gitignore`。
 
 ## 许可证
 

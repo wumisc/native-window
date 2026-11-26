@@ -48,7 +48,7 @@ public class MainActivity extends Activity {
         root.addView(title);
 
         TextView version = new TextView(this);
-        version.setText("HYPEROS 3 / FLYME  ·  VISUAL ALPHA");
+        version.setText("0.3.0 DEEP  ·  ANDROID 17  ·  SYSTEMUI / WCT");
         version.setTextColor(0xFF8E8E93);
         version.setTextSize(11);
         version.setLetterSpacing(0.12f);
@@ -56,7 +56,7 @@ public class MainActivity extends Activity {
         root.addView(version);
 
         TextView intro = new TextView(this);
-        intro.setText("先把国产 UI 的观感做对：圆角、胶囊、底部把手、阴影、边缘吸附、侧边栏与底角扇形。本版是可安装的视觉基线，系统级开窗内核按同一套 chrome 接入。");
+        intro.setText("0.3.0 已接真实 freeform：最近任务菜单在 Launcher 进程用 START_TASKS_FROM_RECENTS 打开 WINDOWING_MODE_FREEFORM=5；SystemUI 关闭 AOSP caption，用 WCT 改 bounds；chrome 服务贴在真实任务上。\n\n下方预览仍是视觉基线；真实小窗请从最近任务菜单的“小窗”进入。LSPosed 作用域需勾选：系统框架、SystemUI、Pixel/LOS 桌面。");
         intro.setTextColor(0xFFB8B8BE);
         intro.setTextSize(14);
         intro.setLineSpacing(dp(5), 1f);
@@ -94,7 +94,7 @@ public class MainActivity extends Activity {
         stop.setTextColor(0xFFFF6B6B);
 
         TextView hint = new TextView(this);
-        hint.setText("提示：首次使用需授予“显示在其他应用上层”。预览会覆盖桌面，点空白处或“停止预览”退出。");
+        hint.setText("提示：首次使用需授予“显示在其他应用上层”与通知权限。预览会覆盖桌面，点空白处或“停止预览”退出。真实小窗的胶囊/底条只在 freeform 任务上出现。");
         hint.setTextColor(0xFF7C7C82);
         hint.setTextSize(12);
         hint.setLineSpacing(dp(4), 1f);

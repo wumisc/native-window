@@ -7,9 +7,13 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage;
 import io.github.wumisc.nativewindow.hook.LauncherHook;
 import io.github.wumisc.nativewindow.hook.LauncherPackages;
 import io.github.wumisc.nativewindow.hook.SystemServerHook;
+import io.github.wumisc.nativewindow.hook.SystemUiHook;
 
 /**
- * LSPosed 入口：system_server 只做 freeform 门禁；Launcher / Quickstep 做最近任务与桌面入口。
+ * LSPosed 入口：
+ * - system_server：打开 freeform 门禁，补 task 权限；
+ * - SystemUI / WMShell：关掉 AOSP caption，采集 freeform 任务 bounds，执行 WCT；
+ * - Launcher：最近任务菜单注入，真正的 freeform 启动在 Launcher 进程完成。
  * 所有 Hook 都是 fail-open，单个类不存在不会影响系统启动。
  */
 public class ModuleEntry implements IXposedHookLoadPackage {
@@ -19,6 +23,11 @@ public class ModuleEntry implements IXposedHookLoadPackage {
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) {
         if ("android".equals(lpparam.packageName)) {
             SystemServerHook.install(lpparam);
+            return;
+        }
+        if ("com.android.systemui".equals(lpparam.packageName)) {
+            XposedBridge.log(TAG + ": systemui");
+            SystemUiHook.install(lpparam);
             return;
         }
         if (LauncherPackages.isLauncher(lpparam.packageName)) {

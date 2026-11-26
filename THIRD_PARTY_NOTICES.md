@@ -13,6 +13,7 @@
 | MaxFreeForm | YifePlayte | GPL-3.0 | HyperOS 小窗入口、强制小窗、贴边、去顶栏/底栏 |
 | HyperCeiler | ReChronoRain | AGPL-3.0 | 单应用规则、位置记忆、HyperOS 行为拆解 |
 | OneStep4 | SangLuoCN | AGPL-3.0 | 侧栏工作台、拖拽分享、场景化多窗 |
+| PixelLauncherEvolved | MrxSiN | GPL-3.0 | Pixel Launcher / Android 17 DEX 审计与类名存活事实；未复制其源码 |
 
 ## 许可证兼容
 
@@ -32,3 +33,4 @@
 - https://github.com/YifePlayte/MaxFreeForm
 - https://github.com/ReChronoRain/HyperCeiler
 - https://github.com/SangLuoCN/OneStep4
+- https://github.com/MrxSiN/PixelLauncherEvolved
