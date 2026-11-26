@@ -36,6 +36,8 @@ public final class SystemUiHook {
     private static final String TAG = "NativeWindow/SUI";
     private static final String ACTION_FORCE_SMALL =
             "io.github.wumisc.nativewindow.action.FORCE_SMALL_WINDOW";
+    private static final String ACTION_SELF_TEST_ACK =
+            "io.github.wumisc.nativewindow.action.SELF_TEST_ACK";
     private static final String EXTRA_TASK_ID = "task_id";
     private static final String EXTRA_BOUNDS = "bounds";
     private static final String EXTRA_MODE = "mode";
@@ -53,6 +55,7 @@ public final class SystemUiHook {
     private SystemUiHook() {}
 
     public static void install(XC_LoadPackage.LoadPackageParam lp) {
+        HyperOsSystemUiHook.install(lp);
         hookSystemUiApplication(lp);
         hookTaskOrganizer(lp);
         hookWindowDecorInflation(lp);
@@ -178,7 +181,11 @@ public final class SystemUiHook {
                     if (mode != SmallWindowBridge.WINDOWING_MODE_FREEFORM
                             && mode != SmallWindowBridge.WINDOWING_MODE_FULLSCREEN) return;
                     Rect bounds = intent.getParcelableExtra(EXTRA_BOUNDS);
-                    forceWindowWithRetry(taskId, mode, bounds, 0);
+                    if (selfTest) {
+                        sendAck("received", taskId, mode, true,
+                                "SystemUI receiver registered");
+                    }
+                    forceWindowWithRetry(taskId, mode, bounds, 0, selfTest);
                 }
             }, filter, Context.RECEIVER_EXPORTED);
             sRequestReceiverRegistered = true;
@@ -212,13 +219,47 @@ public final class SystemUiHook {
         return uid == cached;
     }
 
-    private static void forceWindowWithRetry(int taskId, int mode, Rect bounds, int attempt) {
+    private static void forceWindowWithRetry(int taskId, int mode, Rect bounds,
+            int attempt, boolean selfTest) {
         Object info = getInfo(taskId);
         if (info != null) {
-            if (applyWindowMode(taskId, mode, bounds)) return;
+            if (applyWindowMode(taskId, mode, bounds)) {
+                if (selfTest) {
+                    sendAck("applied", taskId, mode, true,
+                            "WCT setWindowingMode(" + mode + ")"
+                                    + (bounds == null ? "" : " + setBounds"));
+                }
+                return;
+            }
         }
-        if (attempt >= 5) return;
-        MAIN.postDelayed(() -> forceWindowWithRetry(taskId, mode, bounds, attempt + 1), 80);
+        if (attempt >= 5) {
+            if (selfTest) {
+                sendAck("applied", taskId, mode, false,
+                        info == null ? "getRunningTaskInfo returned null"
+                                : "WCT applyTransaction failed");
+            }
+            return;
+        }
+        MAIN.postDelayed(() -> forceWindowWithRetry(taskId, mode, bounds, attempt + 1,
+                selfTest), 80);
+    }
+
+    /** 自检专用回执；只在 self_test=true 时发送，普通开窗不会暴露内部状态。 */
+    private static void sendAck(String stage, int taskId, int mode, boolean ok, String detail) {
+        Context ctx = sContext;
+        if (ctx == null) return;
+        try {
+            Intent ack = new Intent(ACTION_SELF_TEST_ACK);
+            ack.setPackage(MODULE_PKG);
+            ack.putExtra("stage", stage);
+            ack.putExtra("task_id", taskId);
+            ack.putExtra("mode", mode);
+            ack.putExtra("ok", ok);
+            ack.putExtra("detail", detail);
+            ctx.sendBroadcast(ack);
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": send self-test ack failed " + t);
+        }
     }
 
     /** 原生 caption 的“—”：第一次缩到迷你 bounds，第二次恢复。 */

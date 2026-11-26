@@ -1,7 +1,9 @@
 package io.github.wumisc.nativewindow.selftest;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.Rect;
@@ -60,6 +62,9 @@ public class SelfTestActivity extends Activity {
     private int taskId = -1;
     private long startedAt;
     private boolean freeformSeen;
+    private boolean hyper;
+    private boolean hyperProbeOk;
+    private String hyperProbeDetail = "";
     private boolean finished;
 
     @Override
@@ -83,10 +88,17 @@ public class SelfTestActivity extends Activity {
         add("任务", taskId > 0, "taskId=" + taskId);
         add("悬浮窗权限", Settings.canDrawOverlays(this), "仅预览需要；真实小窗不需要");
         add("屏幕", true, screen.width() + " × " + screen.height());
+        hyper = HyperOs.isHyperOs();
+        add("ROM", true, hyper ? HyperOs.describe() : Build.DISPLAY + " · AOSP WMShell");
 
-        status.setText("正在请求 freeform…");
-        main.postDelayed(this::requestFreeform, 700);
-        main.postDelayed(this::evaluate, 4800);
+        if (hyper) {
+            status.setText("HyperOS 4：正在用 MIUI freeform options 拉起探针…");
+            main.postDelayed(this::requestHyperProbe, 700);
+        } else {
+            status.setText("正在请求 freeform…");
+            main.postDelayed(this::requestFreeform, 700);
+            main.postDelayed(this::evaluate, 4800);
+        }
     }
 
     private void applyBars() {
@@ -178,6 +190,40 @@ public class SelfTestActivity extends Activity {
         status.setText("已请求 freeform，等待任务尺寸变化…");
     }
 
+    /** HyperOS 4：不假设 AOSP WCT 可用，直接用 MIUI 的 ActivityOptions 拉起独立探针。 */
+    private void requestHyperProbe() {
+        try {
+            SharedPreferences p = getSharedPreferences(ProbeActivity.PREFS, Context.MODE_PRIVATE);
+            p.edit().clear().apply();
+        } catch (Throwable ignored) {}
+        boolean launched = HyperOsFreeform.launchProbe(this);
+        add("HyperOS 小窗启动", launched,
+                launched ? "ActivityOptions: FREEFORM 5 + MIUI flag 2 + getFreeformRect"
+                        : "startActivity 抛异常，见探针记录");
+        status.setText(launched ? "探针已拉起，等待它测量任务尺寸…" : "探针启动失败");
+        main.postDelayed(this::evaluateHyperProbe, 3600);
+    }
+
+    private void evaluateHyperProbe() {
+        if (finished) return;
+        try {
+            SharedPreferences p = getSharedPreferences(ProbeActivity.PREFS, Context.MODE_PRIVATE);
+            long time = p.getLong("time", 0);
+            hyperProbeOk = p.getBoolean(ProbeActivity.KEY_OK, false);
+            hyperProbeDetail = p.getString(ProbeActivity.KEY_DETAIL, "no probe result");
+            if (time <= 0) {
+                add("探针结果", false, "没有收到 ProbeActivity 的测量结果；ActivityOptions 可能被 HyperOS 拒绝");
+            } else {
+                add("探针结果", hyperProbeOk, hyperProbeDetail);
+            }
+        } catch (Throwable t) {
+            hyperProbeDetail = "read failed: " + t;
+            add("探针结果", false, hyperProbeDetail);
+        }
+        status.setText(hyperProbeOk ? "HyperOS 小窗任务已确认" : "HyperOS 小窗未生效");
+        main.postDelayed(this::finishReport, 1000);
+    }
+
     private void sendForce(Rect bounds, int mode) {
         try {
             Intent i = new Intent(ACTION_FORCE_WINDOW);
@@ -195,6 +241,7 @@ public class SelfTestActivity extends Activity {
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
+        if (hyper) return;
         Rect now = currentBounds(newConfig);
         if (finished || freeformSeen || now == null || screen == null) return;
         boolean smaller = now.width() < screen.width() - dp(80)
@@ -253,15 +300,20 @@ public class SelfTestActivity extends Activity {
         finished = true;
         int passed = 0;
         for (Row row : rows) if (row.pass) passed++;
-        boolean core = freeformSeen;
+        boolean core = hyper ? hyperProbeOk : freeformSeen;
         summary.setText((core ? "核心链路通过" : "核心链路未通过")
                 + "：" + passed + "/" + rows.size() + " 项通过\n"
                 + "耗时 " + ((System.currentTimeMillis() - startedAt) / 1000) + "s · "
                 + new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date()) + "\n\n"
                 + (core
-                ? "真实小窗已经由 SystemUI 的 WindowContainerTransaction 改成了 freeform。"
+                ? (hyper
+                ? "HyperOS 4 已经接受 MIUI freeform ActivityOptions，独立探针任务确实变小。"
+                : "真实小窗已经由 SystemUI 的 WindowContainerTransaction 改成了 freeform。")
+                : (hyper
+                ? "HyperOS 4 上探针仍全屏/没起来。先确认系统框架作用域，再看日志里 "
+                + "MiuiMultiWindowUtils.supportFreeform 是否被放行；这不是 PixelOS 的 WCT 路径。"
                 : "如果任务始终全屏：先确认 LSPosed 勾选了系统框架、SystemUI、Pixel/LOS 桌面，"
-                + "再重启 SystemUI；仍失败请用主界面的“收集并分享日志”。"));
+                + "再重启 SystemUI；仍失败请用主界面的“收集并分享日志”。")));
         status.setText(core ? "自检完成：核心通过" : "自检完成：核心失败");
     }
 

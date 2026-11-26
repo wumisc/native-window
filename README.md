@@ -1,8 +1,26 @@
 # native-window
 
-> 类原生 Android 17 的 HyperOS 3 / Flyme 风格小窗。  
+> 类原生 Android 17 的 HyperOS 3 / Flyme 风格小窗；0.6.1 增加 HyperOS 4 自检分支。  
 > 目标设备：**PixelOS 17 / LineageOS 17**（Android 17，API 37）。  
 > 形态：**LSPosed + Root**，AGPL-3.0。
+
+## 0.6.1-hyperos4：先认出手机是 HyperOS 4
+
+真机日志（Xiaomi M332BF / CP2A.260605.016 / API 37）里，`SelfTestActivity` 一直是
+`mWindowingMode=fullscreen`，`getMiuiFreeformStackInfo=null`。这不是“再点一次”能解决的：
+0.6.0 的 `ShellTaskOrganizer / WindowContainerTransaction / CaptionWindowDecoration` 是
+PixelOS / LineageOS 的 AOSP WMShell 路径；HyperOS 4 用的是
+`MiuiFreeFormManagerService / MiuiFreeFormActivityStack / MiuiBaseWindowDecoration`。
+
+0.6.1 做双分支：
+
+- **HyperOS 4**：`MiuiMultiWindowUtils.supportFreeform` 等门禁放行；自检用 MIUI 的
+  `ActivityOptions`（FREEFORM 5 + `setMiuiConfigFlag(2)` + `getFreeformRect`）拉起独立
+  `ProbeActivity`，由它测量自己是不是小窗。
+- **PixelOS / LOS 17**：保留原来的 SystemUI WCT 往返。
+
+HyperOS 4 顶栏胶囊只做到 `MiuiBaseWindowDecoration#createTopCaption` 的挂载尝试；
+不同版本 View 结构不一样，挂不上会跳过，不会崩 SystemUI。完整说明见 [SELFTEST.md](SELFTEST.md)。
 
 ## 0.6.0-selftest：打开即自动测
 
@@ -222,7 +240,7 @@ native-window/
 export ANDROID_HOME=$HOME/Android/Sdk
 export JAVA_HOME=/path/to/jdk-17
 bash scripts/build.sh
-# 输出：dist/native-window-0.6.0-selftest.apk
+# 输出：dist/native-window-0.6.1-hyperos4.apk
 ```
 
 ### Android Studio

@@ -38,6 +38,7 @@ public final class SystemServerHook {
     private SystemServerHook() {}
 
     public static void install(XC_LoadPackage.LoadPackageParam lp) {
+        HyperOsSystemServerHook.install(lp);
         try {
             Class<?> atms = XposedHelpers.findClass(
                     "com.android.server.wm.ActivityTaskManagerService", lp.classLoader);

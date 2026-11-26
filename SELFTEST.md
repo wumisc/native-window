@@ -1,42 +1,54 @@
-# 0.6.0-selftest 自动自检说明
+# 0.6.1-hyperos4 自动自检说明
+
+## 这版为什么改
+
+你给的日志已经说明问题不在“再点一次”：
+
+```text
+device=Xiaomi M332BF
+release=17 sdk=37
+build=CP2A.260605.016
+SelfTestActivity winConfig mWindowingMode=fullscreen
+getMiuiFreeformStackInfo = null
+root=false
+```
+
+`0.6.0` 走的是 **PixelOS / LineageOS 的 AOSP WMShell** 路径：
+`ShellTaskOrganizer + WindowContainerTransaction + CaptionWindowDecoration`。
+HyperOS 4 的 freeform 是 MIUI 自研栈：`MiuiFreeFormManagerService`、
+`MiuiFreeFormActivityStack`、`MiuiBaseWindowDecoration`，桌面是 `com.miui.home`。
+所以在 HyperOS 4 上，`0.6.0` 的 SystemUI 类找不到，任务当然一直 fullscreen。
+
+`0.6.1` 不再假装 AOSP 路径能用，改成双分支：
+
+| 环境 | 自检方式 |
+|---|---|
+| HyperOS 4 | 用 MIUI 的 `ActivityOptions`：`FREEFORM 5` + `setMiuiConfigFlag(2)` + `MiuiMultiWindowUtils.getFreeformRect` 拉起独立 `ProbeActivity`，由探针测量自己是不是小窗 |
+| PixelOS / LOS 17 | 保留原来的 SystemUI WCT 往返 |
 
 ## 怎么用
 
-1. 安装 `native-window-0.6.0-selftest.apk`。
-2. 确认 LSPosed 已启用模块，作用域勾选：**系统框架（android）**、**SystemUI（com.android.systemui）**、**桌面（Pixel Launcher / Launcher3）**。
-3. 重启 SystemUI 或重启手机。
-4. 打开「类原生小窗」图标，**不要点任何按钮**。
-
-打开后会自动进入「自动自检」页，流程是：
-
-```text
-打开主界面
-  → 280ms 后自动进入自检页
-  → 700ms 后把自己的 task 交给 SystemUI 改成 FREEFORM
-  → 等 4.8s 观察任务尺寸是否变小
-  → 变小：判定 freeform 成功，2s 后恢复全屏
-  → 没变小：判定失败，恢复全屏
-  → 显示自检结果
-```
+1. 安装 `native-window-0.6.1-hyperos4.apk`。
+2. LSPosed 启用模块，作用域至少勾：**系统框架（system）**、**SystemUI（com.android.systemui）**；HyperOS 桌面是 `com.miui.home`，要桌面入口时再勾。
+3. 重启 SystemUI / 重启手机。
+4. 打开 App，**不用点任何按钮**。
 
 ## 结果怎么看
 
-- **核心链路通过**：任务尺寸真的变小了，说明 `SystemServerHook` 的 freeform 门禁、`SystemUiHook` 的 `ShellTaskOrganizer` + `WindowContainerTransaction` 都生效了。
-- **核心链路未通过**：任务仍全屏。按顺序排查：
-  1. LSPosed 模块是否启用；
-  2. 作用域是否包含 `android` / `com.android.systemui`；
-  3. 是否重启过 SystemUI；
-  4. 模块 App 是否被系统限制后台/自启动（自检广播来自模块 UID）；
-  5. 用主界面「收集并分享日志」，看 `NativeWindow/SUI: force-small receiver registered` 和 `applyWindowMode failed`。
-- **设备/构建/任务/屏幕**：只是环境信息；任务 `taskId` 为 -1 时无法自检。
-- **悬浮窗权限**：只影响主界面的假预览，不影响真实小窗。
+- **ROM = HyperOS 4**：走 MIUI 探针。
+- **HyperOS 小窗启动 = ✓**：`ActivityOptions` 已被接受。
+- **探针结果 = ✓**：独立 `ProbeActivity` 的窗口尺寸真的比屏幕小，说明 HyperOS 4 的 freeform 已生效。
+- **探针结果 = ✕**：探针仍是全屏，或 `startActivity` 抛异常。先确认系统框架作用域；再看 LSPosed 日志里有没有
+  `NativeWindow/HyperOS-SS: HyperOS freeform gates installed`。
+- **AOSP 分支**（PixelOS / LOS）仍显示原来的“任务尺寸”行；通过标准不变。
 
-## 这个版本测不到什么
+## 这一版还没做的
 
-- **胶囊是否挂上**：胶囊在 SystemUI 进程的 `CaptionWindowDecoration` 里，自检页只测 task 尺寸；胶囊要看日志 `NativeWindow/Caption: capsule attached`。
-- **第三方 App 开窗**：自检用的是模块自己的 task，避免自动拉起别人的 App。第三方 App 的 non-resizable / 布局重排问题仍需真机点一次最近任务。
-- **拖动/缩放跟手**：需要真实触摸，自动化做不了。
-- **贴边/侧边栏/多窗**：还没实现，不在这个版本里。
+- **HyperOS 4 的顶栏胶囊**：`HyperOsSystemUiHook` 已挂 `MiuiBaseWindowDecoration#createTopCaption`，但不同 HyperOS 4 版本的顶栏 View 结构不同；胶囊能不能挂上要看日志
+  `NativeWindow/HyperOS-Caption: capsule attached`。挂不上不会崩 SystemUI，会跳过。
+- **HyperOS 4 桌面快捷菜单**：`com.miui.home` 是小米自己的桌面，`0.6.1` 还没注入“小窗”菜单；先用系统已有入口/自检探针验证 freeform。
+- **侧边栏、贴边、迷你、双窗**：仍未实现。
+- **root 日志**：日志里 `root=false`，`dumpsys` 被拒；要完整任务栈，需要在 root 管理器里给模块 App 授权 `su`。
 
 ## 构建与校验
 
@@ -45,12 +57,12 @@ ANDROID_HOME=/home/user/tools/android-sdk JAVA_HOME=/home/user/tools/jdk bash sc
 ANDROID_HOME=/home/user/tools/android-sdk bash scripts/smoke.sh
 ```
 
-当前静态冒烟：28/28。
+当前静态冒烟：33/33。
 
 ## 版本
 
-- versionCode 7
-- versionName 0.6.0-selftest
+- versionCode 8
+- versionName 0.6.1-hyperos4
 - 包名 io.github.wumisc.nativewindow
-- APK：`dist/native-window-0.6.0-selftest.apk`
-- sha256：`3ee746abe39c7bfa23ce7ac6528952869ad45304a00ce99f99f4c956e431b0f8`
+- APK：`dist/native-window-0.6.1-hyperos4.apk`
+- sha256：`b6b1f9c260cb9a47dc08e6f12224fa19d28fa3f84d33b44127dd6a1f7567f9a5`
