@@ -90,7 +90,7 @@ public final class SystemServerHook {
     }
 
     /**
-     * 模块 App 自己的 OpenReceiver 回退路径需要 START_TASKS_FROM_RECENTS。
+     * 0.4.0 的开窗在 Launcher 进程完成；这里仍补权限，兼容旧版回退路径。
      * Launcher 进程本来就有该权限，不依赖这里；这里只对模块 UID 放行。
      */
     private static void hookPermissionBypass(XC_LoadPackage.LoadPackageParam lp) {

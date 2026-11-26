@@ -12,7 +12,7 @@ import io.github.wumisc.nativewindow.hook.SystemUiHook;
 /**
  * LSPosed 入口：
  * - system_server：打开 freeform 门禁，补 task 权限；
- * - SystemUI / WMShell：关掉 AOSP caption，采集 freeform 任务 bounds，执行 WCT；
+ * - SystemUI / WMShell：保留原生 caption 并在 caption 根 View 里挂 HyperOS 胶囊，执行 WCT；
  * - Launcher：最近任务菜单注入，真正的 freeform 启动在 Launcher 进程完成。
  * 所有 Hook 都是 fail-open，单个类不存在不会影响系统启动。
  */

@@ -249,13 +249,7 @@ public final class LauncherHook {
                         Toast.LENGTH_SHORT).show();
                 return;
             }
-            // 通知模块 App 的 chrome 服务上线；不依赖它来开窗。
-            try {
-                Intent chrome = new Intent(OpenReceiver.ACTION_OPEN_SMALL_WINDOW);
-                chrome.setPackage(MODULE_PKG);
-                chrome.putExtra(EXTRA_TASK_ID, taskId);
-                context.sendBroadcast(chrome);
-            } catch (Throwable ignored) {}
+            // chrome 由 SystemUI 的原生 CaptionWindowDecoration 接管，不再拉起 App 悬浮窗。
         }
     }
 }

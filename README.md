@@ -4,17 +4,17 @@
 > 目标设备：**PixelOS 17 / LineageOS 17**（Android 17，API 37）。  
 > 形态：**LSPosed + Root**，AGPL-3.0。
 
-## 0.3.0-deep 做了什么
+## 0.4.0-native-caption 做了什么
 
-0.2.0 只有“视觉基线 + 菜单骨架”；0.3.0 把链路接进了 Android 17 的真实 freeform：
+0.3.0 已经接进真实 freeform，但 chrome 还是 App 悬浮窗；观感上一定是“胶囊先动、窗口后动”的两张皮。0.4.0 把 chrome 迁进 SystemUI 的原生 `CaptionWindowDecoration`，让胶囊和 Task surface 共用同一个 Surface：
 
-| 层 | 0.3.0 实现 |
+| 层 | 0.4.0 实现 |
 |---|---|
 | 开窗 | Launcher 进程直接调用 `IActivityTaskManager.startActivityFromRecents(taskId, Bundle)`，Bundle 写 `android.activity.windowingMode=5`（FREEFORM）与 `android:activity.launchBounds` |
 | 系统门禁 | system_server 在 `ActivityTaskManagerService#retrieveSettings` **之后** 打开 `mSupportsMultiWindow`、`mSupportsFreeformWindowManagement`、`mForceResizableActivities`、`mDevEnableNonResizableMultiWindow` |
-| 原生 caption | Hook `CaptionWindowDecorViewModel#shouldShowWindowDecor`，freeform 返回 false，避免 AOSP 标题栏和 HyperOS 胶囊叠两层 |
-| 任务 chrome | `TaskChromeService` 贴在 SystemUI 上报的真实 Task bounds 上：顶部胶囊 + 底部把手，不再画假卡片 |
-| 移动 / 缩放 | App 把新 bounds 发给 SystemUI；`SystemUiHook` 用 `WindowContainerTransaction#setBounds` 调 `ShellTaskOrganizer#applyTransaction` |
+| 原生 caption | 保留 `CaptionWindowDecorViewModel#shouldShowWindowDecor` 的 freeform 原生标题栏；Hook `WindowDecoration#inflateLayout`，在 `caption_window_decor` 根 View 上加胶囊 |
+| 任务 chrome | `NativeCaptionDecorator` 隐藏 AOSP 三键、清掉标题栏底色，加 `NativeCapsuleView`；胶囊是 Task Surface 的子 View，随任务移动/裁剪/圆角 |
+| 移动 / 缩放 | 拖动交给原生 `CaptionTouchEventListener`；按钮通过 `WindowContainerTransaction#setBounds` 调 `ShellTaskOrganizer#applyTransaction` |
 | 迷你 / 全屏 / 关闭 | `setBounds` 到迷你尺寸；`setWindowingMode(FULLSCREEN)`；`IActivityTaskManager.removeTask(taskId)` |
 | 最近任务菜单 | Hook `TaskOverlayFactory#getEnabledShortcuts`，追加 `RemoteActionShortcut`；PendingIntent 落到 **Launcher 进程** 的动态接收器，而不是模块 App |
 | 动画 | `SpringAnimator` 自研半隐式欧拉弹簧；胶囊开窗、缩放、迷你切换都用它 |
@@ -89,7 +89,7 @@ if (taskInfo.getWindowingMode() == WINDOWING_MODE_FREEFORM) {
 }
 ```
 
-它会给每个 freeform Task 画 `CaptionWindowDecoration`。0.3.0 把它关掉，用 `TaskChromeService` 的胶囊替代。
+它会给每个 freeform Task 画 `CaptionWindowDecoration`。0.4.0 不再关掉它，而是在它的 `caption_window_decor` 根 View 里放 HyperOS 胶囊；原生 caption 的圆角、阴影、拖动、crop 全部保留。
 
 ### 6. 任务边界修改的系统入口是 `ShellTaskOrganizer` + WCT
 
@@ -156,9 +156,9 @@ TaskOverlayFactory 菜单
 | 自研弹簧动画 | ✅ | `SpringAnimator`：半隐式欧拉 + 4 子步，60/90/120/144Hz 一致 |
 | 最近任务菜单 | ✅ 代码完成，待真机 | LOS / Pixel 同一套 `TaskOverlayFactory` Hook |
 | 真实 freeform 开窗 | ✅ 代码完成，待真机 | `FREEFORM=5` + Bundle + Launcher 权限 |
-| SystemUI caption 接管 | ✅ 代码完成，待真机 | 关闭 AOSP caption，换项目胶囊 |
+| SystemUI 原生 caption | ✅ 代码完成，待真机 | 保留 AOSP caption，在里面塞项目胶囊 |
 | WCT 移动/缩放 | ✅ 代码完成，待真机 | `ShellTaskOrganizer#applyTransaction` |
-| 迷你/全屏/关闭 | ✅ 代码完成，待真机 | 改 bounds / 改 windowingMode / removeTask |
+| 迷你/全屏/关闭 | ✅ 代码完成，待真机 | 原生胶囊按钮 → 改 bounds / 改 windowingMode / removeTask |
 | Pixel Launcher DexKit 指纹 | ⏳ | 当前按类名，R8 改名后需要 DexKit |
 | 多窗 / 分屏 / 桌面模式 | ❌ | 首版不做 |
 | 真机回归 | ❌ | 当前环境无 adb 设备、无 emulator |
@@ -173,16 +173,14 @@ native-window/
 │   │   ├── OverlayService.java            # 预览悬浮窗
 │   │   ├── DemoOverlay.java               # HyperOS/Flyme 视觉基线
 │   │   ├── anim/SpringAnimator.java       # 自研物理弹簧
-│   │   ├── chrome/
-│   │   │   ├── TaskChromeService.java     # 真实任务 chrome 服务
-│   │   │   └── TaskCapsuleView.java       # 顶部胶囊
 │   │   └── hook/
 │   │       ├── ModuleEntry.java           # LSPosed 入口
 │   │       ├── SystemServerHook.java      # freeform 门禁 + 权限补丁
-│   │       ├── SystemUiHook.java          # caption / TaskOrganizer / WCT
-│   │       ├── LauncherHook.java          # 最近任务菜单 + Launcher 接收器
-│   │       ├── SmallWindowBridge.java     # 正确签名的 freeform 启动
-│   │       └── OpenReceiver.java          # 拉起 chrome 服务
+│   │       ├── SystemUiHook.java          # 原生 caption / TaskOrganizer / WCT
+│   │       ├── NativeCaptionDecorator.java # 把胶囊塞进 caption 根 View
+│   │       ├── NativeCapsuleView.java      # 胶囊视觉与按钮
+│   │       ├── LauncherHook.java           # 最近任务菜单 + Launcher 接收器
+│   │       └── SmallWindowBridge.java     # 正确签名的 freeform 启动
 │   ├── res/
 │   └── assets/xposed_init
 ├── libs/api-82.jar                        # compileOnly，不打包
@@ -198,7 +196,7 @@ native-window/
 export ANDROID_HOME=$HOME/Android/Sdk
 export JAVA_HOME=/path/to/jdk-17
 bash scripts/build.sh
-# 输出：dist/native-window-0.3.0-deep-alpha.apk
+# 输出：dist/native-window-0.4.0-native-caption-alpha.apk
 ```
 
 ### Android Studio
@@ -208,10 +206,10 @@ JDK 17+、Android SDK Platform 37；AGP `9.5.3`，`compileSdk 37`、`minSdk 34`�
 ## 安装与作用域
 
 1. 安装 APK；
-2. 授予「显示在其他应用上层」和通知权限；
+2. 授予「显示在其他应用上层」（只用于下方视觉预览）；
 3. LSPosed 启用模块，作用域必须勾选：
    - **系统框架**（`android`）：freeform 门禁、task 权限补丁；
-   - **SystemUI**（`com.android.systemui`）：caption、TaskOrganizer、WCT、命令接收；
+   - **SystemUI**（`com.android.systemui`）：原生 caption、TaskOrganizer、WCT；
    - **桌面**（`com.android.launcher3` 或 `com.google.android.apps.nexuslauncher`）：最近任务菜单与开窗；
 4. 重启 SystemUI / 设备；
 5. 进最近任务，点任务菜单里的「小窗」。
@@ -220,18 +218,17 @@ JDK 17+、Android SDK Platform 37；AGP `9.5.3`，`compileSdk 37`、`minSdk 34`�
 
 ## 适配边界与已知限制
 
-- **没有真机/模拟器**：本环境 `adb devices` 为空，0.3.0 是源码级实现 + 静态编译通过；真机回归还未做。
+- **没有真机/模拟器**：本环境 `adb devices` 为空，0.4.0 是源码级实现 + 静态编译通过；真机回归还未做。
 - **Pixel Launcher 没有源码**：只能按 Android 17 仍存活的类名 Hook；后续要接 DexKit 指纹和 `TaskShortcutFactory` 的 R8 名。
-- **原生 caption 全关**：`shouldShowWindowDecor` 对所有 freeform 返回 false。若 chrome 服务没起来，窗口会没有标题栏；正式版应按 taskId 只关本项目接管的窗口。
-- **chrome 是应用悬浮窗**：`TaskChromeService` 用 `TYPE_APPLICATION_OVERLAY`，需要用户授予悬浮窗权限；不是 SystemUI 内部窗口，层级和功耗还不如 SystemUI 原生实现。
-- **命令接收器**：`OpenReceiver` 仍 exported；SystemUI 的 `CommandReceiver` 目前是 `RECEIVER_EXPORTED` + 发送 UID 检查，正式版要换 signature Binder。
+- **原生 caption 依赖 WMShell 类名**：`WindowDecoration#inflateLayout` 和 `caption_window_decor` 是 Android 17 的当前实现；如果 ROM 把 `caption_window_decor` 改名，胶囊不会出现，但 AOSP caption 仍在，不会把窗口做没。
+- **没有命令接收器/悬浮窗 chrome**：0.4.0 的按钮全部在 SystemUI 进程内直接调 WCT；模块 App 不再持有任务操作入口，权限面比 0.3.0 小。
 - **迷你窗**：当前是“缩小 bounds”的迷你窗，不是把任务迁到 VirtualDisplay 的贴边保活；后者是 M3。
 - **国产 App 非 resizeable**：已用 `mForceResizableActivities` 强制；个别 App 会重排布局或拒绝，需要 per-app 规则。
 - **不复制 OEM 私有代码/素材**：不碰 ColorOS `OplusZoomWindowManager`、`FlexibleTaskController`、`getFlexibleZoomState`；不复制小米/魅族/OPPO 商标、系统图标、字体。
 
 ## Roadmap
 
-- **M1（当前）**：PixelOS 17 / LOS 17 真机回归；freeform 开窗、caption 接管、WCT 移动缩放。
+- **M1（当前）**：PixelOS 17 / LOS 17 真机回归；freeform 开窗、原生 caption 胶囊、WCT 移动缩放。
 - **M2**：DexKit 指纹，覆盖 Pixel Launcher R8 改名；`TaskShortcutFactory` 原生 freeform 菜单合并去重。
 - **M3**：迷你/贴边真实任务迁移、贴边保活、VirtualDisplay 单槽回退。
 - **M4**：侧边栏、底角扇形接到真实任务；最近任务滑动方向、关闭动画对齐 HyperOS 3。

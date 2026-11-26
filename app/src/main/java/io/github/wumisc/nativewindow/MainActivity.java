@@ -48,7 +48,7 @@ public class MainActivity extends Activity {
         root.addView(title);
 
         TextView version = new TextView(this);
-        version.setText("0.3.0 DEEP  ·  ANDROID 17  ·  SYSTEMUI / WCT");
+        version.setText("0.4.0 NATIVE CAPTION  ·  ANDROID 17  ·  WMShell");
         version.setTextColor(0xFF8E8E93);
         version.setTextSize(11);
         version.setLetterSpacing(0.12f);
@@ -56,7 +56,7 @@ public class MainActivity extends Activity {
         root.addView(version);
 
         TextView intro = new TextView(this);
-        intro.setText("0.3.0 已接真实 freeform：最近任务菜单在 Launcher 进程用 START_TASKS_FROM_RECENTS 打开 WINDOWING_MODE_FREEFORM=5；SystemUI 关闭 AOSP caption，用 WCT 改 bounds；chrome 服务贴在真实任务上。\n\n下方预览仍是视觉基线；真实小窗请从最近任务菜单的“小窗”进入。LSPosed 作用域需勾选：系统框架、SystemUI、Pixel/LOS 桌面。");
+        intro.setText("0.4.0 把胶囊塞进 SystemUI 的原生 CaptionWindowDecoration：胶囊和 Task surface 一起移动、裁剪、圆角，拖动不再出现“胶囊先动、窗口后动”。\n\n开窗仍在 Launcher 进程用 START_TASKS_FROM_RECENTS 打开 WINDOWING_MODE_FREEFORM=5。下方预览只是视觉基线；真实小窗请从最近任务菜单的“小窗”进入。LSPosed 作用域需勾选：系统框架、SystemUI、Pixel/LOS 桌面。");
         intro.setTextColor(0xFFB8B8BE);
         intro.setTextSize(14);
         intro.setLineSpacing(dp(5), 1f);

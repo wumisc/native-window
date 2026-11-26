@@ -1,13 +1,8 @@
 package io.github.wumisc.nativewindow.hook;
 
-import android.content.BroadcastReceiver;
 import android.content.Context;
-import android.content.Intent;
-import android.content.IntentFilter;
 import android.graphics.Rect;
-import android.os.Binder;
-import android.os.Bundle;
-import android.os.SystemClock;
+import android.view.View;
 import android.view.WindowManager;
 
 import java.lang.reflect.Method;
@@ -21,53 +16,30 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage;
  * SystemUI / WMShell 深度适配。
  *
  * 源码核对（Android 17）：
- * - freeform 任务的原生 caption 由
- *   com.android.wm.shell.windowdecor.CaptionWindowDecorViewModel#shouldShowWindowDecor 决定；
- *   freeform 分支直接 return true，所以会画一条 AOSP 标题栏。我们要把它关掉，换成 HyperOS 3 chrome。
- * - 任务状态从 com.android.wm.shell.ShellTaskOrganizer 的 onTaskAppeared / onTaskInfoChanged /
- *   onTaskVanished 来；同一个对象还能 applyTransaction(WindowContainerTransaction)，
- *   这是移动 / 缩放 / 切全屏的系统级入口。
- * - 关任务走 IActivityTaskManager.removeTask(int)，SystemUI 有系统 UID。
+ * - freeform 任务的原生 caption 由 CaptionWindowDecorViewModel 创建，
+ *   视图是 com.android.wm.shell.windowdecor.CaptionWindowDecoration，根 View 是
+ *   WindowDecorLinearLayout，布局 caption_window_decor。
+ * - CaptionWindowDecoration 已经把 Task surface 的圆角、阴影、crop、position 一起处理；
+ *   这是“窗口本体 + chrome 同一个 Surface”的正确切入点。
+ * - 任务边界修改走 ShellTaskOrganizer#applyTransaction(WindowContainerTransaction)。
  *
- * 设计：App 只做 chrome 的 View；真正的任务边界修改在 SystemUI 进程用 WCT 完成。
+ * 0.4.0 不再使用 App 悬浮窗 chrome：直接把胶囊塞进原生 caption 的 View 树，
+ * 拖动/缩放继续交给 CaptionTouchEventListener，避免“胶囊先动、窗口后动”。
  */
 public final class SystemUiHook {
     private static final String TAG = "NativeWindow/SUI";
-    public static final String MODULE_PKG = "io.github.wumisc.nativewindow";
-
-    public static final String ACTION_TASK_CHANGED =
-            "io.github.wumisc.nativewindow.action.TASK_CHANGED";
-    public static final String ACTION_TASK_VANISHED =
-            "io.github.wumisc.nativewindow.action.TASK_VANISHED";
-    public static final String ACTION_MOVE_TASK =
-            "io.github.wumisc.nativewindow.action.MOVE_TASK";
-    public static final String ACTION_MINI_TASK =
-            "io.github.wumisc.nativewindow.action.MINI_TASK";
-    public static final String ACTION_FULLSCREEN_TASK =
-            "io.github.wumisc.nativewindow.action.FULLSCREEN_TASK";
-    public static final String ACTION_CLOSE_TASK =
-            "io.github.wumisc.nativewindow.action.CLOSE_TASK";
-    public static final String ACTION_QUERY_TASK =
-            "io.github.wumisc.nativewindow.action.QUERY_TASK";
-
-    public static final String EXTRA_TASK_ID = "task_id";
-    public static final String EXTRA_BOUNDS = "bounds";
-    public static final String EXTRA_LABEL = "label";
-    public static final String EXTRA_PACKAGE = "package";
-    public static final String EXTRA_VISIBLE = "visible";
-    public static final String EXTRA_WINDOWING_MODE = "windowing_mode";
 
     private static volatile Object sOrganizer;
     private static volatile Context sContext;
-    private static volatile int sModuleUid = -1;
-    private static volatile long sLastPublish;
+    private static final android.util.SparseArray<Rect> sNormalBounds =
+            new android.util.SparseArray<>();
 
     private SystemUiHook() {}
 
     public static void install(XC_LoadPackage.LoadPackageParam lp) {
         hookSystemUiApplication(lp);
         hookTaskOrganizer(lp);
-        hookCaption(lp);
+        hookWindowDecorInflation(lp);
     }
 
     private static void hookSystemUiApplication(XC_LoadPackage.LoadPackageParam lp) {
@@ -75,14 +47,10 @@ public final class SystemUiHook {
             Class<?> cls = XposedHelpers.findClassIfExists(
                     "com.android.systemui.application.impl.SystemUIApplicationImpl",
                     lp.classLoader);
-            if (cls == null) {
-                XposedBridge.log(TAG + ": SystemUIApplicationImpl not found");
-                return;
-            }
+            if (cls == null) return;
             XposedHelpers.findAndHookMethod(cls, "onCreate", new XC_MethodHook() {
                 @Override protected void afterHookedMethod(MethodHookParam param) {
-                    Context ctx = (Context) param.thisObject;
-                    onSystemUiReady(ctx);
+                    sContext = (Context) param.thisObject;
                 }
             });
         } catch (Throwable t) {
@@ -90,269 +58,100 @@ public final class SystemUiHook {
         }
     }
 
-    private static void onSystemUiReady(Context context) {
-        sContext = context;
-        try {
-            sModuleUid = context.getPackageManager().getPackageUid(MODULE_PKG, 0);
-        } catch (Throwable t) {
-            XposedBridge.log(TAG + ": module uid failed " + t);
-        }
-        try {
-            IntentFilter filter = new IntentFilter();
-            filter.addAction(ACTION_MOVE_TASK);
-            filter.addAction(ACTION_MINI_TASK);
-            filter.addAction(ACTION_FULLSCREEN_TASK);
-            filter.addAction(ACTION_CLOSE_TASK);
-            filter.addAction(ACTION_QUERY_TASK);
-            context.registerReceiver(new CommandReceiver(), filter, Context.RECEIVER_EXPORTED);
-            XposedBridge.log(TAG + ": command receiver registered");
-        } catch (Throwable t) {
-            XposedBridge.log(TAG + ": register command receiver failed " + t);
-        }
-    }
-
     private static void hookTaskOrganizer(XC_LoadPackage.LoadPackageParam lp) {
         try {
             Class<?> cls = XposedHelpers.findClassIfExists(
                     "com.android.wm.shell.ShellTaskOrganizer", lp.classLoader);
-            if (cls == null) {
-                XposedBridge.log(TAG + ": ShellTaskOrganizer not found");
-                return;
-            }
+            if (cls == null) return;
             XposedBridge.hookAllConstructors(cls, new XC_MethodHook() {
                 @Override protected void afterHookedMethod(MethodHookParam param) {
                     sOrganizer = param.thisObject;
-                    XposedBridge.log(TAG + ": ShellTaskOrganizer captured");
-                }
-            });
-            XposedBridge.hookAllMethods(cls, "onTaskAppeared", new XC_MethodHook() {
-                @Override protected void afterHookedMethod(MethodHookParam param) {
-                    if (param.args.length >= 1) publish(param.args[0], false);
-                }
-            });
-            XposedBridge.hookAllMethods(cls, "onTaskInfoChanged", new XC_MethodHook() {
-                @Override protected void afterHookedMethod(MethodHookParam param) {
-                    if (param.args.length >= 1) publish(param.args[0], false);
                 }
             });
             XposedBridge.hookAllMethods(cls, "onTaskVanished", new XC_MethodHook() {
                 @Override protected void afterHookedMethod(MethodHookParam param) {
-                    if (param.args.length >= 1) publish(param.args[0], true);
+                    if (param.args.length >= 1) {
+                        sNormalBounds.remove(intField(param.args[0], "taskId", -1));
+                    }
                 }
             });
-            XposedBridge.log(TAG + ": ShellTaskOrganizer hooked");
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": task organizer hook failed " + t);
         }
     }
 
-    private static void hookCaption(XC_LoadPackage.LoadPackageParam lp) {
+    /** 在原生 caption 的 inflateLayout 之后，把 HyperOS 胶囊塞进它的根 View。 */
+    private static void hookWindowDecorInflation(XC_LoadPackage.LoadPackageParam lp) {
         try {
             Class<?> cls = XposedHelpers.findClassIfExists(
-                    "com.android.wm.shell.windowdecor.CaptionWindowDecorViewModel",
-                    lp.classLoader);
+                    "com.android.wm.shell.windowdecor.WindowDecoration", lp.classLoader);
             if (cls == null) return;
-            Method target = null;
-            for (Method m : cls.getDeclaredMethods()) {
-                if ("shouldShowWindowDecor".equals(m.getName())
-                        && m.getParameterTypes().length == 1) {
-                    target = m;
-                    break;
-                }
-            }
-            if (target == null) return;
-            XposedBridge.hookMethod(target, new XC_MethodHook() {
+            XposedBridge.hookAllMethods(cls, "inflateLayout", new XC_MethodHook() {
                 @Override protected void afterHookedMethod(MethodHookParam param) {
-                    if (param.args.length < 1) return;
-                    if (windowMode(param.args[0]) == SmallWindowBridge.WINDOWING_MODE_FREEFORM) {
-                        param.setResult(false);
+                    try {
+                        if (param.args.length < 2) return;
+                        if (!(param.args[0] instanceof Context)) return;
+                        if (!(param.args[1] instanceof Integer)) return;
+                        Object result = param.getResult();
+                        if (!(result instanceof View)) return;
+                        Context ctx = (Context) param.args[0];
+                        int layoutId = (Integer) param.args[1];
+                        String name = ctx.getResources().getResourceEntryName(layoutId);
+                        if ("caption_window_decor".equals(name)) {
+                            NativeCaptionDecorator.decorate(param.thisObject, (View) result);
+                        }
+                    } catch (Throwable t) {
+                        XposedBridge.log(TAG + ": decorate caption failed " + t);
                     }
                 }
             });
-            XposedBridge.log(TAG + ": native freeform caption suppressed");
+            XposedBridge.log(TAG + ": native caption hooked");
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": caption hook failed " + t);
         }
     }
 
-    /** 把 freeform 任务的 bounds / 标题 / 可见性发给模块 App 的 chrome 服务。 */
-    private static void publish(Object taskInfo, boolean vanished) {
-        Context ctx = sContext;
-        if (ctx == null || taskInfo == null) return;
-        int taskId = intField(taskInfo, "taskId", -1);
-        if (taskId <= 0) return;
-
-        if (vanished) {
-            Intent i = new Intent(ACTION_TASK_VANISHED);
-            i.setPackage(MODULE_PKG);
-            i.putExtra(EXTRA_TASK_ID, taskId);
-            ctx.sendBroadcast(i);
+    /** 原生 caption 的“—”：第一次缩到迷你 bounds，第二次恢复。 */
+    static void toggleMini(int taskId) {
+        Object info = getInfo(taskId);
+        if (info == null) return;
+        Rect normal = sNormalBounds.get(taskId);
+        if (normal != null) {
+            sNormalBounds.remove(taskId);
+            applyBounds(taskId, normal);
             return;
         }
+        Rect current = boundsOf(info);
+        if (current == null) return;
+        sNormalBounds.put(taskId, new Rect(current));
+        Context ctx = sContext;
+        int w = ctx != null ? dp(ctx, 220) : 660;
+        int h = ctx != null ? dp(ctx, 150) : 450;
+        int left = ctx != null ? dp(ctx, 12) : 36;
+        int top = ctx != null ? dp(ctx, 96) : 288;
+        Rect mini = new Rect(left, top, left + w, top + h);
+        mini.offset(Math.max(0, current.left - (ctx != null ? dp(ctx, 24) : 72)),
+                Math.max(0, current.top - (ctx != null ? dp(ctx, 24) : 72)));
+        applyBounds(taskId, mini);
+    }
 
-        long now = SystemClock.uptimeMillis();
-        if (now - sLastPublish < 12) return;
-        sLastPublish = now;
+    static void fullscreenTask(int taskId) {
+        Context ctx = sContext;
+        Rect screen = ctx != null ? screenBounds(ctx) : null;
+        applyWindowMode(taskId, SmallWindowBridge.WINDOWING_MODE_FULLSCREEN, screen);
+    }
 
+    static void closeTask(int taskId) {
         try {
-            Rect bounds = taskBounds(taskInfo);
-            if (bounds == null) return;
-            int mode = windowMode(taskInfo);
-            boolean visible = boolField(taskInfo, "isVisible", true);
-            String label = "";
-            try {
-                Object desc = XposedHelpers.getObjectField(taskInfo, "taskDescription");
-                Object l = XposedHelpers.callMethod(desc, "getLabel");
-                if (l != null) label = String.valueOf(l);
-            } catch (Throwable ignored) {}
-            String pkg = "";
-            try {
-                Object base = XposedHelpers.getObjectField(taskInfo, "baseActivity");
-                Object p = XposedHelpers.callMethod(base, "getPackageName");
-                if (p != null) pkg = String.valueOf(p);
-            } catch (Throwable ignored) {}
-
-            Intent i = new Intent(ACTION_TASK_CHANGED);
-            i.setPackage(MODULE_PKG);
-            i.putExtra(EXTRA_TASK_ID, taskId);
-            i.putExtra(EXTRA_BOUNDS, bounds);
-            i.putExtra(EXTRA_LABEL, label);
-            i.putExtra(EXTRA_PACKAGE, pkg);
-            i.putExtra(EXTRA_VISIBLE, visible);
-            i.putExtra(EXTRA_WINDOWING_MODE, mode);
-            ctx.sendBroadcast(i);
+            Class<?> cls = Class.forName("android.app.ActivityTaskManager");
+            Object atm = cls.getMethod("getService").invoke(null);
+            atm.getClass().getMethod("removeTask", int.class).invoke(atm, taskId);
         } catch (Throwable t) {
-            XposedBridge.log(TAG + ": publish failed " + t);
+            XposedBridge.log(TAG + ": closeTask failed " + t);
         }
     }
 
-
-    /** TaskInfo 没有 public bounds 字段；边界在 configuration.windowConfiguration.getBounds()。 */
-    private static Rect taskBounds(Object taskInfo) {
-        try {
-            Object config = XposedHelpers.getObjectField(taskInfo, "configuration");
-            Object wc = XposedHelpers.getObjectField(config, "windowConfiguration");
-            Object b = XposedHelpers.callMethod(wc, "getBounds");
-            if (b instanceof Rect) return new Rect((Rect) b);
-        } catch (Throwable ignored) {}
-        return null;
-    }
-
-    private static int windowMode(Object info) {
-        try {
-            Object mode = XposedHelpers.callMethod(info, "getWindowingMode");
-            if (mode instanceof Integer) return (Integer) mode;
-        } catch (Throwable ignored) {}
-        try {
-            Object config = XposedHelpers.getObjectField(info, "windowConfiguration");
-            Object mode = XposedHelpers.callMethod(config, "getWindowingMode");
-            if (mode instanceof Integer) return (Integer) mode;
-        } catch (Throwable ignored) {}
-        // 最后兜底：TaskInfo.isFreeform() 在 Android 17 仍然存在。
-        try {
-            Object free = XposedHelpers.callMethod(info, "isFreeform");
-            if (free instanceof Boolean && (Boolean) free) {
-                return SmallWindowBridge.WINDOWING_MODE_FREEFORM;
-            }
-        } catch (Throwable ignored) {}
-        return 0;
-    }
-
-    private static int intField(Object target, String field, int def) {
-        try {
-            return XposedHelpers.getIntField(target, field);
-        } catch (Throwable t) {
-            return def;
-        }
-    }
-
-    private static boolean boolField(Object target, String field, boolean def) {
-        try {
-            return XposedHelpers.getBooleanField(target, field);
-        } catch (Throwable t) {
-            return def;
-        }
-    }
-
-    /** App chrome 发来的命令；真正的 WCT 在这里执行。 */
-    private static final class CommandReceiver extends BroadcastReceiver {
-        @Override public void onReceive(Context context, Intent intent) {
-            if (intent == null) return;
-            if (!allowSender(this)) {
-                XposedBridge.log(TAG + ": command rejected from uid=" + Binder.getCallingUid());
-                return;
-            }
-            int taskId = intent.getIntExtra(EXTRA_TASK_ID, -1);
-            if (taskId <= 0) return;
-            String action = intent.getAction();
-            if (ACTION_CLOSE_TASK.equals(action)) {
-                closeTask(taskId);
-                return;
-            }
-            if (ACTION_QUERY_TASK.equals(action)) {
-                Object info = getInfo(taskId);
-                if (info != null) publish(info, false);
-                return;
-            }
-            if (ACTION_FULLSCREEN_TASK.equals(action)) {
-                Object info = getInfo(taskId);
-                Rect screen = screenBounds(context);
-                applyWindowMode(taskId, SmallWindowBridge.WINDOWING_MODE_FULLSCREEN, screen);
-                return;
-            }
-            if (ACTION_MINI_TASK.equals(action)) {
-                Object info = getInfo(taskId);
-                if (info == null) return;
-                Rect current = boundsOf(info);
-                int w = dp(context, 220);
-                int h = dp(context, 150);
-                int left = dp(context, 12);
-                int top = dp(context, 96);
-                Rect mini = new Rect(left, top, left + w, top + h);
-                if (current != null && current.left > 0) {
-                    // 从当前窗口位置往左上收，观感更接近 HyperOS 的贴边迷你窗。
-                    mini.offset(Math.max(0, current.left - dp(context, 24)),
-                            Math.max(0, current.top - dp(context, 24)));
-                }
-                applyBounds(taskId, mini);
-                return;
-            }
-            Rect bounds = intent.getParcelableExtra(EXTRA_BOUNDS);
-            if (bounds != null) applyBounds(taskId, bounds);
-        }
-    }
-
-    private static boolean allowSender(BroadcastReceiver receiver) {
-        try {
-            Object uid = XposedHelpers.callMethod(receiver, "getSendingUid");
-            if (uid instanceof Integer) {
-                int u = (Integer) uid;
-                return u == sModuleUid || u == 1000;
-            }
-        } catch (Throwable ignored) {}
-        // API 未暴露 getSendingUid 时 fail-open；alpha 版接受，正式版换签名 Binder。
-        return true;
-    }
-
-    private static Object getInfo(int taskId) {
-        Object org = sOrganizer;
-        if (org == null) return null;
-        try {
-            return XposedHelpers.callMethod(org, "getRunningTaskInfo", taskId);
-        } catch (Throwable t) {
-            return null;
-        }
-    }
-
-    private static Rect boundsOf(Object info) {
-        try {
-            Object b = XposedHelpers.getObjectField(info, "bounds");
-            if (b instanceof Rect) return new Rect((Rect) b);
-        } catch (Throwable ignored) {}
-        return null;
-    }
-
-    private static boolean applyBounds(int taskId, Rect bounds) {
+    static boolean applyBounds(int taskId, Rect bounds) {
         Object org = sOrganizer;
         Object info = getInfo(taskId);
         if (org == null || info == null) return false;
@@ -371,7 +170,7 @@ public final class SystemUiHook {
         }
     }
 
-    private static boolean applyWindowMode(int taskId, int mode, Rect bounds) {
+    static boolean applyWindowMode(int taskId, int mode, Rect bounds) {
         Object org = sOrganizer;
         Object info = getInfo(taskId);
         if (org == null || info == null) return false;
@@ -395,14 +194,24 @@ public final class SystemUiHook {
         }
     }
 
-    private static void closeTask(int taskId) {
+    private static Object getInfo(int taskId) {
+        Object org = sOrganizer;
+        if (org == null) return null;
         try {
-            Class<?> cls = Class.forName("android.app.ActivityTaskManager");
-            Object atm = cls.getMethod("getService").invoke(null);
-            atm.getClass().getMethod("removeTask", int.class).invoke(atm, taskId);
+            return XposedHelpers.callMethod(org, "getRunningTaskInfo", taskId);
         } catch (Throwable t) {
-            XposedBridge.log(TAG + ": closeTask failed " + t);
+            return null;
         }
+    }
+
+    private static Rect boundsOf(Object info) {
+        try {
+            Object config = XposedHelpers.getObjectField(info, "configuration");
+            Object wc = XposedHelpers.getObjectField(config, "windowConfiguration");
+            Object b = XposedHelpers.callMethod(wc, "getBounds");
+            if (b instanceof Rect) return new Rect((Rect) b);
+        } catch (Throwable ignored) {}
+        return null;
     }
 
     private static Rect screenBounds(Context context) {
@@ -411,6 +220,14 @@ public final class SystemUiHook {
             return new Rect(wm.getCurrentWindowMetrics().getBounds());
         } catch (Throwable t) {
             return null;
+        }
+    }
+
+    private static int intField(Object target, String field, int def) {
+        try {
+            return XposedHelpers.getIntField(target, field);
+        } catch (Throwable t) {
+            return def;
         }
     }
 
