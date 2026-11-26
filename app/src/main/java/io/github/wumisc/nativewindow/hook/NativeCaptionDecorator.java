@@ -105,10 +105,10 @@ final class NativeCaptionDecorator {
             View caption = id != 0 ? root.findViewById(id) : root;
             if (caption == null) return;
             Drawable bg = caption.getBackground();
+            // 只改 GradientDrawable 的颜色，绝不替换成 ColorDrawable：
+            // CaptionWindowDecoration#setupCaptionColor 后面还会强转 GradientDrawable。
             if (bg instanceof GradientDrawable) {
                 ((GradientDrawable) bg).setColor(Color.TRANSPARENT);
-            } else {
-                caption.setBackgroundColor(Color.TRANSPARENT);
             }
         } catch (Throwable ignored) {}
     }

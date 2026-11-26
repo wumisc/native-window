@@ -46,6 +46,8 @@ public final class LauncherHook {
             "io.github.wumisc.nativewindow.action.OPEN_SMALL_WINDOW";
     public static final String EXTRA_TASK_ID = "task_id";
     public static final String EXTRA_BOUNDS = "bounds";
+    private static final String ACTION_FORCE_SMALL_SYSTEMUI =
+            "io.github.wumisc.nativewindow.action.FORCE_SMALL_WINDOW";
 
     private static volatile boolean sReceiverRegistered;
 
@@ -107,6 +109,9 @@ public final class LauncherHook {
                     List shortcuts = (List) param.getResult();
                     if (containsSmallWindow(shortcuts)) return;
                     View taskView = (View) param.args[0];
+                    // TaskOverlayFactory 可能在没有 Launcher.onCreate 的情况下被拉起（进程被回收后
+                    // 直接从最近任务进入）。接收器必须在这里也保证注册，否则菜单点了没反应。
+                    ensureReceiver(taskView.getContext());
                     Object shortcut = buildShortcut(taskView);
                     if (shortcut == null) return;
                     try {
@@ -248,6 +253,20 @@ public final class LauncherHook {
                 Toast.makeText(context, "小窗启动失败，请查看 LSPosed 日志",
                         Toast.LENGTH_SHORT).show();
                 return;
+            }
+            // startActivityFromRecents 对“已存在的 task”只做 moveTaskToFront，
+            // ActivityOptions 里的 freeform/bounds 不会重新套用。显式通知 SystemUI，
+            // 由 ShellTaskOrganizer + WCT 真正改成 FREEFORM 5 并设 bounds。
+            Intent force = new Intent(ACTION_FORCE_SMALL_SYSTEMUI);
+            force.setPackage("com.android.systemui");
+            force.putExtra(EXTRA_TASK_ID, taskId);
+            if (bounds != null) force.putExtra(EXTRA_BOUNDS, bounds);
+            context.sendBroadcast(force);
+            // 个别 ROM 的 SystemUI 接收器还没起来，补一次 resizeTask 兜底。
+            if (bounds != null) {
+                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                    SmallWindowBridge.resizeTask(context, taskId, bounds);
+                }, 220);
             }
             // chrome 由 SystemUI 的原生 CaptionWindowDecoration 接管，不再拉起 App 悬浮窗。
         }

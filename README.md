@@ -4,11 +4,11 @@
 > 目标设备：**PixelOS 17 / LineageOS 17**（Android 17，API 37）。  
 > 形态：**LSPosed + Root**，AGPL-3.0。
 
-## 0.4.0-native-caption 做了什么
+## 0.4.1-native-caption 做了什么
 
-0.3.0 已经接进真实 freeform，但 chrome 还是 App 悬浮窗；观感上一定是“胶囊先动、窗口后动”的两张皮。0.4.0 把 chrome 迁进 SystemUI 的原生 `CaptionWindowDecoration`，让胶囊和 Task surface 共用同一个 Surface：
+0.3.0 已经接进真实 freeform，但 chrome 还是 App 悬浮窗；观感上一定是“胶囊先动、窗口后动”的两张皮。0.4.1 把 chrome 迁进 SystemUI 的原生 `CaptionWindowDecoration`，让胶囊和 Task surface 共用同一个 Surface：
 
-| 层 | 0.4.0 实现 |
+| 层 | 0.4.1 实现 |
 |---|---|
 | 开窗 | Launcher 进程直接调用 `IActivityTaskManager.startActivityFromRecents(taskId, Bundle)`，Bundle 写 `android.activity.windowingMode=5`（FREEFORM）与 `android:activity.launchBounds` |
 | 系统门禁 | system_server 在 `ActivityTaskManagerService#retrieveSettings` **之后** 打开 `mSupportsMultiWindow`、`mSupportsFreeformWindowManagement`、`mForceResizableActivities`、`mDevEnableNonResizableMultiWindow` |
@@ -89,7 +89,7 @@ if (taskInfo.getWindowingMode() == WINDOWING_MODE_FREEFORM) {
 }
 ```
 
-它会给每个 freeform Task 画 `CaptionWindowDecoration`。0.4.0 不再关掉它，而是在它的 `caption_window_decor` 根 View 里放 HyperOS 胶囊；原生 caption 的圆角、阴影、拖动、crop 全部保留。
+它会给每个 freeform Task 画 `CaptionWindowDecoration`。0.4.1 不再关掉它，而是在它的 `caption_window_decor` 根 View 里放 HyperOS 胶囊；原生 caption 的圆角、阴影、拖动、crop 全部保留。
 
 ### 6. 任务边界修改的系统入口是 `ShellTaskOrganizer` + WCT
 
@@ -196,7 +196,7 @@ native-window/
 export ANDROID_HOME=$HOME/Android/Sdk
 export JAVA_HOME=/path/to/jdk-17
 bash scripts/build.sh
-# 输出：dist/native-window-0.4.0-native-caption-alpha.apk
+# 输出：dist/native-window-0.4.1-native-caption-alpha.apk
 ```
 
 ### Android Studio
@@ -218,10 +218,10 @@ JDK 17+、Android SDK Platform 37；AGP `9.5.3`，`compileSdk 37`、`minSdk 34`�
 
 ## 适配边界与已知限制
 
-- **没有真机/模拟器**：本环境 `adb devices` 为空，0.4.0 是源码级实现 + 静态编译通过；真机回归还未做。
+- **没有真机/模拟器**：本环境 `adb devices` 为空，0.4.1 是源码级实现 + 静态编译通过；真机回归还未做。
 - **Pixel Launcher 没有源码**：只能按 Android 17 仍存活的类名 Hook；后续要接 DexKit 指纹和 `TaskShortcutFactory` 的 R8 名。
 - **原生 caption 依赖 WMShell 类名**：`WindowDecoration#inflateLayout` 和 `caption_window_decor` 是 Android 17 的当前实现；如果 ROM 把 `caption_window_decor` 改名，胶囊不会出现，但 AOSP caption 仍在，不会把窗口做没。
-- **没有命令接收器/悬浮窗 chrome**：0.4.0 的按钮全部在 SystemUI 进程内直接调 WCT；模块 App 不再持有任务操作入口，权限面比 0.3.0 小。
+- **没有命令接收器/悬浮窗 chrome**：0.4.1 的按钮全部在 SystemUI 进程内直接调 WCT；模块 App 不再持有任务操作入口，权限面比 0.3.0 小。
 - **迷你窗**：当前是“缩小 bounds”的迷你窗，不是把任务迁到 VirtualDisplay 的贴边保活；后者是 M3。
 - **国产 App 非 resizeable**：已用 `mForceResizableActivities` 强制；个别 App 会重排布局或拒绝，需要 per-app 规则。
 - **不复制 OEM 私有代码/素材**：不碰 ColorOS `OplusZoomWindowManager`、`FlexibleTaskController`、`getFlexibleZoomState`；不复制小米/魅族/OPPO 商标、系统图标、字体。

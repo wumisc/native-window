@@ -1,7 +1,13 @@
 package io.github.wumisc.nativewindow.hook;
 
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.pm.PackageManager;
 import android.graphics.Rect;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.View;
 import android.view.WindowManager;
 
@@ -23,11 +29,17 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage;
  *   这是“窗口本体 + chrome 同一个 Surface”的正确切入点。
  * - 任务边界修改走 ShellTaskOrganizer#applyTransaction(WindowContainerTransaction)。
  *
- * 0.4.0 不再使用 App 悬浮窗 chrome：直接把胶囊塞进原生 caption 的 View 树，
+ * 0.4.1 不再使用 App 悬浮窗 chrome：直接把胶囊塞进原生 caption 的 View 树，
  * 拖动/缩放继续交给 CaptionTouchEventListener，避免“胶囊先动、窗口后动”。
  */
 public final class SystemUiHook {
     private static final String TAG = "NativeWindow/SUI";
+    private static final String ACTION_FORCE_SMALL =
+            "io.github.wumisc.nativewindow.action.FORCE_SMALL_WINDOW";
+    private static final String EXTRA_TASK_ID = "task_id";
+    private static final String EXTRA_BOUNDS = "bounds";
+    private static final Handler MAIN = new Handler(Looper.getMainLooper());
+    private static volatile boolean sRequestReceiverRegistered;
 
     private static volatile Object sOrganizer;
     private static volatile Context sContext;
@@ -52,6 +64,7 @@ public final class SystemUiHook {
             XposedHelpers.findAndHookMethod(cls, "onCreate", new XC_MethodHook() {
                 @Override protected void afterHookedMethod(MethodHookParam param) {
                     sContext = (Context) param.thisObject;
+                    registerRequestReceiver(sContext);
                 }
             });
         } catch (Throwable t) {
@@ -131,6 +144,54 @@ public final class SystemUiHook {
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": caption color hook failed " + t);
         }
+    }
+
+    /**
+     * Launcher 进程只能 startActivityFromRecents；Android 17 的该接口对“已在最近任务里的 task”
+     * 只做 moveTaskToFront，ActivityOptions 里的 launchBounds/windowingMode 不会重新套到已有 task。
+     * 因此 Launcher 发一条显式广播给 SystemUI，由这里用 WCT 真正把 task 改成 freeform + bounds。
+     *
+     * 接收器 exported，但校验 sender UID 必须是 Launcher，避免任意 App 改任务。
+     */
+    private static synchronized void registerRequestReceiver(Context context) {
+        if (sRequestReceiverRegistered || context == null) return;
+        try {
+            IntentFilter filter = new IntentFilter(ACTION_FORCE_SMALL);
+            context.registerReceiver(new BroadcastReceiver() {
+                @Override public void onReceive(Context ctx, Intent intent) {
+                    if (intent == null || !ACTION_FORCE_SMALL.equals(intent.getAction())) return;
+                    if (!isLauncherUid(ctx, getSentFromUid())) return;
+                    int taskId = intent.getIntExtra(EXTRA_TASK_ID, -1);
+                    if (taskId <= 0) return;
+                    Rect bounds = intent.getParcelableExtra(EXTRA_BOUNDS);
+                    forceSmallWithRetry(taskId, bounds, 0);
+                }
+            }, filter, Context.RECEIVER_EXPORTED);
+            sRequestReceiverRegistered = true;
+            XposedBridge.log(TAG + ": force-small receiver registered");
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": force-small receiver failed " + t);
+        }
+    }
+
+    private static boolean isLauncherUid(Context context, int uid) {
+        PackageManager pm = context.getPackageManager();
+        try {
+            if (uid == pm.getPackageUid("com.android.launcher3", 0)) return true;
+        } catch (Throwable ignored) {}
+        try {
+            if (uid == pm.getPackageUid("com.google.android.apps.nexuslauncher", 0)) return true;
+        } catch (Throwable ignored) {}
+        return false;
+    }
+
+    private static void forceSmallWithRetry(int taskId, Rect bounds, int attempt) {
+        Object info = getInfo(taskId);
+        if (info != null) {
+            if (applyWindowMode(taskId, SmallWindowBridge.WINDOWING_MODE_FREEFORM, bounds)) return;
+        }
+        if (attempt >= 5) return;
+        MAIN.postDelayed(() -> forceSmallWithRetry(taskId, bounds, attempt + 1), 80);
     }
 
     /** 原生 caption 的“—”：第一次缩到迷你 bounds，第二次恢复。 */

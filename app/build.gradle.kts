@@ -10,8 +10,8 @@ android {
         applicationId = "io.github.wumisc.nativewindow"
         minSdk = 34
         targetSdk = 37
-        versionCode = 4
-        versionName = "0.4.0-native-caption-alpha"
+        versionCode = 5
+        versionName = "0.4.1-native-caption-alpha"
     }
 
     compileOptions {
