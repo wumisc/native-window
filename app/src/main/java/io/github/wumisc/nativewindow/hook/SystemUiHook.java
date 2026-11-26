@@ -40,6 +40,7 @@ public final class SystemUiHook {
         hookSystemUiApplication(lp);
         hookTaskOrganizer(lp);
         hookWindowDecorInflation(lp);
+        hookCaptionColor(lp);
     }
 
     private static void hookSystemUiApplication(XC_LoadPackage.LoadPackageParam lp) {
@@ -108,6 +109,27 @@ public final class SystemUiHook {
             XposedBridge.log(TAG + ": native caption hooked");
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": caption hook failed " + t);
+        }
+    }
+
+    /**
+     * CaptionWindowDecoration#setupCaptionColor 会把 caption 的 GradientDrawable 刷成
+     * statusBarColor；必须在它之后再把颜色刷透明，否则胶囊下面还是 AOSP 深色标题栏。
+     */
+    private static void hookCaptionColor(XC_LoadPackage.LoadPackageParam lp) {
+        try {
+            Class<?> cls = XposedHelpers.findClassIfExists(
+                    "com.android.wm.shell.windowdecor.CaptionWindowDecoration", lp.classLoader);
+            if (cls == null) return;
+            XC_MethodHook clear = new XC_MethodHook() {
+                @Override protected void afterHookedMethod(MethodHookParam param) {
+                    NativeCaptionDecorator.clearCaptionBackground(param.thisObject, null);
+                }
+            };
+            XposedBridge.hookAllMethods(cls, "setupCaptionColor", clear);
+            XposedBridge.hookAllMethods(cls, "setCaptionColor", clear);
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": caption color hook failed " + t);
         }
     }
 

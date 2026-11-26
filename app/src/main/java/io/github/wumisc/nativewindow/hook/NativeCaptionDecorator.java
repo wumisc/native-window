@@ -2,6 +2,8 @@ package io.github.wumisc.nativewindow.hook;
 
 import android.content.Context;
 import android.graphics.Color;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
@@ -43,8 +45,9 @@ final class NativeCaptionDecorator {
         if (taskId <= 0) return;
 
         Context context = root.getContext();
-        // 去掉 AOSP caption 的深色底；阴影仍由原生 window decoration 提供。
-        root.setBackground(null);
+        // 不能把背景置 null：CaptionWindowDecoration#setupCaptionColor 会强转 GradientDrawable。
+        // 保留 drawable，只把颜色刷透明；后面还会 Hook setupCaptionColor/setCaptionColor 再刷一次。
+        clearCaptionBackground(decoration, root);
         root.setPadding(0, 0, 0, 0);
 
         hide(root, context, "back_button");
@@ -87,6 +90,27 @@ final class NativeCaptionDecorator {
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": add capsule failed " + t);
         }
+    }
+
+    static void clearCaptionBackground(Object decoration, View root) {
+        try {
+            if (root == null) {
+                Object result = XposedHelpers.getObjectField(decoration, "mResult");
+                Object rv = XposedHelpers.getObjectField(result, "mRootView");
+                if (rv instanceof View) root = (View) rv;
+            }
+            if (root == null) return;
+            Context context = root.getContext();
+            int id = context.getResources().getIdentifier("caption", "id", context.getPackageName());
+            View caption = id != 0 ? root.findViewById(id) : root;
+            if (caption == null) return;
+            Drawable bg = caption.getBackground();
+            if (bg instanceof GradientDrawable) {
+                ((GradientDrawable) bg).setColor(Color.TRANSPARENT);
+            } else {
+                caption.setBackgroundColor(Color.TRANSPARENT);
+            }
+        } catch (Throwable ignored) {}
     }
 
     private static void hide(View root, Context context, String idName) {
