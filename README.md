@@ -4,7 +4,7 @@
 > 目标设备：**PixelOS 17 / LineageOS 17**（Android 17，API 37）。  
 > 形态：**LSPosed + Root**，AGPL-3.0。
 
-## 0.4.1-native-caption 做了什么
+## 0.5.0-log-dark 做了什么
 
 0.3.0 已经接进真实 freeform，但 chrome 还是 App 悬浮窗；观感上一定是“胶囊先动、窗口后动”的两张皮。0.4.1 把 chrome 迁进 SystemUI 的原生 `CaptionWindowDecoration`，让胶囊和 Task surface 共用同一个 Surface：
 
@@ -18,6 +18,12 @@
 | 迷你 / 全屏 / 关闭 | `setBounds` 到迷你尺寸；`setWindowingMode(FULLSCREEN)`；`IActivityTaskManager.removeTask(taskId)` |
 | 最近任务菜单 | Hook `TaskOverlayFactory#getEnabledShortcuts`，追加 `RemoteActionShortcut`；PendingIntent 落到 **Launcher 进程** 的动态接收器，而不是模块 App |
 | 动画 | `SpringAnimator` 自研半隐式欧拉弹簧；胶囊开窗、缩放、迷你切换都用它 |
+
+### 0.5.0 新增：日志分享与深色模式
+
+- **日志分享**：主界面「收集并分享日志」会抓 `logcat`（`NativeWindow*` / `LSPosed` / `AndroidRuntime` / `ActivityManager` / `WindowManager`）+ `dumpsys activity activities` + `dumpsys window windows` + `dumpsys activity processes`，写到 cache 后通过自己的 `ContentProvider` 分享，避免 `file://` 在 target 37 被拦。
+- **root 兜底**：普通 App 没有 `READ_LOGS`；先跑普通命令，输出为空/权限拒绝时自动尝试 `su -c`，并记录 `root=true/false`，不会因为拿不到 dumpsys 就不给日志。
+- **深色模式**：`Palette` 跟系统 `uiMode` 走；主界面日间浅灰、夜间近黑，状态栏/导航栏图标同步切换。预览的 Hyper / Flyme 皮肤只决定圆角和视觉语言，颜色跟随系统深色；原生 caption 胶囊也按 `UI_MODE_NIGHT` 切换深/浅。
 
 ## 从源码读出来的关键结论
 
@@ -161,6 +167,8 @@ TaskOverlayFactory 菜单
 | 迷你/全屏/关闭 | ✅ 代码完成，待真机 | 原生胶囊按钮 → 改 bounds / 改 windowingMode / removeTask |
 | Pixel Launcher DexKit 指纹 | ⏳ | 当前按类名，R8 改名后需要 DexKit |
 | 多窗 / 分屏 / 桌面模式 | ❌ | 首版不做 |
+| 日志分享 / root 抓取 | ✅ 代码完成 | 普通 logcat → su 兜底；Provider 分享 |
+| 深色模式 | ✅ 代码完成 | 主界面、预览、原生胶囊跟随系统 uiMode |
 | 真机回归 | ❌ | 当前环境无 adb 设备、无 emulator |
 
 ## 目录
@@ -169,9 +177,13 @@ TaskOverlayFactory 菜单
 native-window/
 ├── app/src/main/
 │   ├── java/io/github/wumisc/nativewindow/
-│   │   ├── MainActivity.java              # 设置 / 预览入口
+│   │   ├── MainActivity.java              # 设置 / 预览 / 日志入口
 │   │   ├── OverlayService.java            # 预览悬浮窗
 │   │   ├── DemoOverlay.java               # HyperOS/Flyme 视觉基线
+│   │   ├── Palette.java                   # 日间/夜间配色
+│   │   ├── log/
+│   │   │   ├── LogCollector.java          # logcat + dumpsys + su 兜底
+│   │   │   └── LogProvider.java           # content:// 日志分享
 │   │   ├── anim/SpringAnimator.java       # 自研物理弹簧
 │   │   └── hook/
 │   │       ├── ModuleEntry.java           # LSPosed 入口
@@ -196,7 +208,7 @@ native-window/
 export ANDROID_HOME=$HOME/Android/Sdk
 export JAVA_HOME=/path/to/jdk-17
 bash scripts/build.sh
-# 输出：dist/native-window-0.4.1-native-caption-alpha.apk
+# 输出：dist/native-window-0.5.0-log-dark.apk
 ```
 
 ### Android Studio
@@ -212,16 +224,18 @@ JDK 17+、Android SDK Platform 37；AGP `9.5.3`，`compileSdk 37`、`minSdk 34`�
    - **SystemUI**（`com.android.systemui`）：原生 caption、TaskOrganizer、WCT；
    - **桌面**（`com.android.launcher3` 或 `com.google.android.apps.nexuslauncher`）：最近任务菜单与开窗；
 4. 重启 SystemUI / 设备；
-5. 进最近任务，点任务菜单里的「小窗」。
+5. 进最近任务，点任务菜单里的「小窗」；
+6. 出问题回主界面点「收集并分享日志」，把 txt 发回来。普通 logcat 拿不到时会请求 root。
 
 > PixelOS 上如果最近任务菜单没有出现「小窗」，先看 LSPosed 日志里 `NativeWindow/Launcher: TaskOverlayFactory not found` 还是 `RemoteActionShortcut not found`；这两种都是类名/混淆问题，不是开窗内核问题。
 
 ## 适配边界与已知限制
 
-- **没有真机/模拟器**：本环境 `adb devices` 为空，0.4.1 是源码级实现 + 静态编译通过；真机回归还未做。
+- **没有真机/模拟器**：本环境 `adb devices` 为空，0.5.0 是源码级实现 + 静态编译通过；真机回归还未做。
 - **Pixel Launcher 没有源码**：只能按 Android 17 仍存活的类名 Hook；后续要接 DexKit 指纹和 `TaskShortcutFactory` 的 R8 名。
 - **原生 caption 依赖 WMShell 类名**：`WindowDecoration#inflateLayout` 和 `caption_window_decor` 是 Android 17 的当前实现；如果 ROM 把 `caption_window_decor` 改名，胶囊不会出现，但 AOSP caption 仍在，不会把窗口做没。
-- **没有命令接收器/悬浮窗 chrome**：0.4.1 的按钮全部在 SystemUI 进程内直接调 WCT；模块 App 不再持有任务操作入口，权限面比 0.3.0 小。
+- **没有命令接收器/悬浮窗 chrome**：0.5.0 的按钮全部在 SystemUI 进程内直接调 WCT；模块 App 不再持有任务操作入口，权限面比 0.3.0 小。
+- **日志分享依赖 root 才能拿全**：普通 App 没有 `READ_LOGS`，没有 root 时只能拿到 `logcat` 自身权限允许的部分；`dumpsys` 多数需要 root。日志里会明确写 `root=false` 和失败原因。
 - **迷你窗**：当前是“缩小 bounds”的迷你窗，不是把任务迁到 VirtualDisplay 的贴边保活；后者是 M3。
 - **国产 App 非 resizeable**：已用 `mForceResizableActivities` 强制；个别 App 会重排布局或拒绝，需要 per-app 规则。
 - **不复制 OEM 私有代码/素材**：不碰 ColorOS `OplusZoomWindowManager`、`FlexibleTaskController`、`getFlexibleZoomState`；不复制小米/魅族/OPPO 商标、系统图标、字体。

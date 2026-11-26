@@ -20,6 +20,8 @@ import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import io.github.wumisc.nativewindow.log.LogCollector;
+
 public class MainActivity extends Activity {
     private static final int REQ_OVERLAY = 1001;
 
@@ -30,9 +32,23 @@ public class MainActivity extends Activity {
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS);
         getWindow().setStatusBarColor(Color.TRANSPARENT);
         getWindow().setNavigationBarColor(Color.TRANSPARENT);
+        boolean night = Palette.isNight(this);
+        getWindow().getDecorView().setSystemUiVisibility(night ? 0
+                : (View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+                        | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR));
+        try {
+            android.view.WindowInsetsController c = getWindow().getInsetsController();
+            if (c != null) {
+                c.setSystemBarsAppearance(night ? 0
+                        : (android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                                | android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS),
+                        android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                                | android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);
+            }
+        } catch (Throwable ignored) {}
 
         ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(0xFF08090C);
+        scroll.setBackgroundColor(Palette.bg(this));
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -42,30 +58,30 @@ public class MainActivity extends Activity {
 
         TextView title = new TextView(this);
         title.setText("类原生小窗");
-        title.setTextColor(0xFFF5F5F7);
+        title.setTextColor(Palette.fg(this));
         title.setTextSize(30);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         root.addView(title);
 
         TextView version = new TextView(this);
-        version.setText("0.4.1 NATIVE CAPTION  ·  ANDROID 17  ·  WMShell");
-        version.setTextColor(0xFF8E8E93);
+        version.setText("0.5.0 LOG / DARK  ·  ANDROID 17  ·  WMShell");
+        version.setTextColor(Palette.tertiary(this));
         version.setTextSize(11);
         version.setLetterSpacing(0.12f);
         version.setPadding(0, dp(6), 0, dp(24));
         root.addView(version);
 
         TextView intro = new TextView(this);
-        intro.setText("0.4.1 把胶囊塞进 SystemUI 的原生 CaptionWindowDecoration：胶囊和 Task surface 一起移动、裁剪、圆角，拖动不再出现“胶囊先动、窗口后动”。\n\n开窗仍在 Launcher 进程用 START_TASKS_FROM_RECENTS 打开 WINDOWING_MODE_FREEFORM=5。下方预览只是视觉基线；真实小窗请从最近任务菜单的“小窗”进入。LSPosed 作用域需勾选：系统框架、SystemUI、Pixel/LOS 桌面。");
-        intro.setTextColor(0xFFB8B8BE);
+        intro.setText("0.5.0 把胶囊塞进 SystemUI 的原生 CaptionWindowDecoration：胶囊和 Task surface 一起移动、裁剪、圆角，拖动不再出现“胶囊先动、窗口后动”。\n\n开窗仍在 Launcher 进程用 START_TASKS_FROM_RECENTS 打开 WINDOWING_MODE_FREEFORM=5。下方预览只是视觉基线；真实小窗请从最近任务菜单的“小窗”进入。LSPosed 作用域需勾选：系统框架、SystemUI、Pixel/LOS 桌面。");
+        intro.setTextColor(Palette.secondary(this));
         intro.setTextSize(14);
         intro.setLineSpacing(dp(5), 1f);
         root.addView(intro, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         Switch skin = new Switch(this);
-        skin.setText("Flyme 皮肤（浅色 / 大圆角）");
-        skin.setTextColor(0xFFE5E5EA);
+        skin.setText("Flyme 皮肤（大圆角，颜色跟随系统深色）");
+        skin.setTextColor(Palette.fg(this));
         skin.setTextSize(14);
         skin.setPadding(0, dp(24), 0, dp(8));
         skin.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
@@ -91,11 +107,15 @@ public class MainActivity extends Activity {
                         .setAction(OverlayService.ACTION_STOP));
             }
         });
-        stop.setTextColor(0xFFFF6B6B);
+        stop.setTextColor(Palette.danger(this));
+
+        addButton(root, "收集并分享日志", new View.OnClickListener() {
+            @Override public void onClick(View v) { LogCollector.collectAndShare(MainActivity.this); }
+        });
 
         TextView hint = new TextView(this);
-        hint.setText("提示：首次使用需授予“显示在其他应用上层”与通知权限。预览会覆盖桌面，点空白处或“停止预览”退出。真实小窗的胶囊/底条只在 freeform 任务上出现。");
-        hint.setTextColor(0xFF7C7C82);
+        hint.setText("提示：首次使用需授予“显示在其他应用上层”。预览会覆盖桌面，点空白处或“停止预览”退出。真实小窗的胶囊/底条只在 freeform 任务上出现。“收集并分享日志”会抓 logcat + dumpsys，没权限时自动尝试 su。");
+        hint.setTextColor(Palette.tertiary(this));
         hint.setTextSize(12);
         hint.setLineSpacing(dp(4), 1f);
         hint.setPadding(0, dp(28), 0, 0);
@@ -108,11 +128,11 @@ public class MainActivity extends Activity {
         Button button = new Button(this);
         button.setText(text);
         button.setTextSize(15);
-        button.setTextColor(0xFFF2F2F7);
+        button.setTextColor(Palette.buttonText(this));
         button.setAllCaps(false);
         button.setGravity(Gravity.CENTER);
         button.setPadding(dp(16), 0, dp(16), 0);
-        button.setBackground(round(0xFF1C1C1E, 18, 0x33FFFFFF));
+        button.setBackground(round(Palette.button(this), 18, Palette.buttonStroke(this)));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(54));
         lp.topMargin = dp(12);

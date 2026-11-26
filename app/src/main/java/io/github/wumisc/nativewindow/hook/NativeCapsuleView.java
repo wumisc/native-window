@@ -2,6 +2,7 @@ package io.github.wumisc.nativewindow.hook;
 
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
 import android.view.View;
@@ -29,13 +30,18 @@ final class NativeCapsuleView extends FrameLayout {
     private final Listener listener;
     private final ImageView icon;
     private final TextView title;
+    private final boolean night;
 
     NativeCapsuleView(Context context, Listener listener) {
         super(context);
         this.listener = listener;
+        int nightMode = context.getResources().getConfiguration().uiMode
+                & Configuration.UI_MODE_NIGHT_MASK;
+        night = nightMode == Configuration.UI_MODE_NIGHT_YES;
         setClipChildren(false);
         setClipToPadding(false);
-        setBackground(round(0xF21C1C1E, 22, 0x33FFFFFF));
+        setBackground(round(night ? 0xF21C1C1E : 0xF2FFFFFF,
+                22, night ? 0x33FFFFFF : 0x1A000000));
         setPadding(dp(10), dp(3), dp(6), dp(3));
 
         LinearLayout row = new LinearLayout(context);
@@ -49,7 +55,7 @@ final class NativeCapsuleView extends FrameLayout {
         row.addView(icon, new LinearLayout.LayoutParams(dp(20), dp(20)));
 
         title = new TextView(context);
-        title.setTextColor(0xFFF2F2F7);
+        title.setTextColor(night ? 0xFFF2F2F7 : 0xFF17171A);
         title.setTextSize(12);
         title.setSingleLine(true);
         title.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -75,10 +81,10 @@ final class NativeCapsuleView extends FrameLayout {
     private TextView button(Context context, String text, OnClickListener click) {
         TextView v = new TextView(context);
         v.setText(text);
-        v.setTextColor(0xFFE5E5EA);
+        v.setTextColor(night ? 0xFFE5E5EA : 0xFF3A3A3C);
         v.setTextSize(14);
         v.setGravity(Gravity.CENTER);
-        v.setBackground(round(0x22FFFFFF, 13, 0));
+        v.setBackground(round(night ? 0x22FFFFFF : 0x11000000, 13, 0));
         v.setPadding(dp(7), 0, dp(7), 0);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(30), dp(26));
         lp.leftMargin = dp(4);

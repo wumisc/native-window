@@ -1,7 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.wumisc.nativewindow"
-    android:versionCode="5"
-    android:versionName="0.4.1-native-caption-alpha">
+    android:versionCode="6"
+    android:versionName="0.5.0-log-dark">
 
     <uses-sdk android:minSdkVersion="34" android:targetSdkVersion="37" />
 
@@ -32,5 +32,11 @@
         <service
             android:name=".OverlayService"
             android:exported="false" />
+
+        <provider
+            android:name=".log.LogProvider"
+            android:authorities="io.github.wumisc.nativewindow.logs"
+            android:exported="false"
+            android:grantUriPermissions="true" />
     </application>
 </manifest>

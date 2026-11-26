@@ -52,11 +52,13 @@ public class DemoOverlay {
         collectApps();
     }
 
-    private boolean dark() { return skin == SKIN_HYPER; }
-    private int fg() { return dark() ? 0xFFF2F2F7 : 0xFF17171A; }
-    private int sub() { return dark() ? 0xFF9A9AA0 : 0xFF707077; }
-    private int cardColor() { return dark() ? 0xF21C1C1E : 0xF7FFFFFF; }
-    private int capsuleColor() { return dark() ? 0xCC2C2C2E : 0xE6FFFFFF; }
+    /** 系统深色优先；系统浅色时 Hyper 皮肤仍用深色，Flyme 皮肤用浅色。 */
+    private boolean dark() { return skin == SKIN_HYPER || Palette.isNight(context); }
+    private int radius() { return skin == SKIN_FLYME ? 28 : 22; }
+    private int fg() { return Palette.fg(context); }
+    private int sub() { return Palette.secondary(context); }
+    private int cardColor() { return Palette.card(context); }
+    private int capsuleColor() { return Palette.capsule(context); }
 
     public void show(String mode) {
         hide();
@@ -71,7 +73,7 @@ public class DemoOverlay {
         root.setClipToPadding(false);
 
         View dim = new View(context);
-        dim.setBackgroundColor(0x66000000);
+        dim.setBackgroundColor(Palette.dim(context));
         dim.setOnClickListener(v -> hide());
         root.addView(dim, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -114,7 +116,7 @@ public class DemoOverlay {
 
     private void buildCard() {
         card = new FrameLayout(context);
-        card.setBackground(round(cardColor(), dark() ? 22 : 28, dark() ? 0x22FFFFFF : 0x14000000));
+        card.setBackground(round(cardColor(), radius(), Palette.cardStroke(context)));
         card.setElevation(dp(28));
         card.setClipToOutline(true);
 
@@ -133,7 +135,7 @@ public class DemoOverlay {
         capsule.setOrientation(LinearLayout.HORIZONTAL);
         capsule.setGravity(Gravity.CENTER);
         capsule.setPadding(dp(12), 0, dp(12), 0);
-        capsule.setBackground(round(capsuleColor(), 18, dark() ? 0x22FFFFFF : 0x1A000000));
+        capsule.setBackground(round(capsuleColor(), 18, Palette.cardStroke(context)));
         FrameLayout.LayoutParams capLp = new FrameLayout.LayoutParams(dp(132), dp(34));
         capLp.gravity = Gravity.CENTER;
         top.addView(capsule, capLp);
@@ -166,7 +168,7 @@ public class DemoOverlay {
 
         ImageView icon = new ImageView(context);
         icon.setImageDrawable(apps.get(0).icon);
-        icon.setBackground(round(dark() ? 0x22FFFFFF : 0x11000000, 14, 0));
+        icon.setBackground(round(Palette.iconPlate(context), 14, 0));
         icon.setPadding(dp(8), dp(8), dp(8), dp(8));
         header.addView(icon, new LinearLayout.LayoutParams(dp(46), dp(46)));
 
@@ -192,7 +194,7 @@ public class DemoOverlay {
 
         // 底部把手
         View handle = new View(context);
-        handle.setBackground(round(dark() ? 0x66FFFFFF : 0x55000000, 3, 0));
+        handle.setBackground(round(Palette.handle(context), 3, 0));
         FrameLayout.LayoutParams handleLp = new FrameLayout.LayoutParams(dp(96), dp(5));
         handleLp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
         handleLp.bottomMargin = dp(10);
@@ -210,7 +212,7 @@ public class DemoOverlay {
 
         ImageView icon = new ImageView(context);
         icon.setImageDrawable(entry.icon);
-        icon.setBackground(round(dark() ? 0x1FFFFFFF : 0x0D000000, 12, 0));
+        icon.setBackground(round(Palette.sidebarIcon(context), 12, 0));
         icon.setPadding(dp(8), dp(8), dp(8), dp(8));
         row.addView(icon, new LinearLayout.LayoutParams(dp(38), dp(38)));
 
@@ -228,7 +230,7 @@ public class DemoOverlay {
         sidebar = new LinearLayout(context);
         sidebar.setOrientation(LinearLayout.VERTICAL);
         sidebar.setPadding(dp(10), dp(74), dp(10), dp(30));
-        sidebar.setBackground(round(0xEE141416, 20, 0x22FFFFFF));
+        sidebar.setBackground(round(Palette.sidebar(context), 20, Palette.sidebarStroke(context)));
         sidebar.setElevation(dp(18));
         sidebar.setVisibility(View.GONE);
 
@@ -244,7 +246,7 @@ public class DemoOverlay {
             ImageView icon = new ImageView(context);
             icon.setImageDrawable(entry.icon);
             icon.setPadding(dp(9), dp(9), dp(9), dp(9));
-            icon.setBackground(round(0x1FFFFFFF, 13, 0));
+            icon.setBackground(round(Palette.sidebarIcon(context), 13, 0));
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(48), dp(48));
             lp.gravity = Gravity.CENTER_HORIZONTAL;
             lp.topMargin = dp(9);
@@ -253,7 +255,7 @@ public class DemoOverlay {
         }
 
         sidebarHandle = new View(context);
-        sidebarHandle.setBackground(round(0xB3FFFFFF, 4, 0));
+        sidebarHandle.setBackground(round(Palette.sidebarHandle(context), 4, 0));
         FrameLayout.LayoutParams handleLp = new FrameLayout.LayoutParams(dp(5), dp(74));
         handleLp.gravity = Gravity.START | Gravity.CENTER_VERTICAL;
         handleLp.leftMargin = dp(2);
@@ -266,7 +268,7 @@ public class DemoOverlay {
         miniChip = new ImageView(context);
         miniChip.setImageDrawable(apps.get(0).icon);
         miniChip.setPadding(dp(9), dp(9), dp(9), dp(9));
-        miniChip.setBackground(round(dark() ? 0xF21C1C1E : 0xF7FFFFFF, 18, dark() ? 0x22FFFFFF : 0x14000000));
+        miniChip.setBackground(round(cardColor(), 18, Palette.cardStroke(context)));
         miniChip.setElevation(dp(18));
         miniChip.setVisibility(View.GONE);
         FrameLayout.LayoutParams chipLp = new FrameLayout.LayoutParams(dp(56), dp(56));
@@ -418,7 +420,7 @@ public class DemoOverlay {
 
     private View divider() {
         View v = new View(context);
-        v.setBackgroundColor(dark() ? 0x14FFFFFF : 0x0D000000);
+        v.setBackgroundColor(dark() ? 0x14FFFFFF : Palette.sidebarIcon(context));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
         lp.topMargin = dp(12);
@@ -491,13 +493,15 @@ public class DemoOverlay {
         private int selected = -1;
         private float cx, cy, radius;
         private float reveal = 1f;
+        private final boolean dark;
 
         public RadialView(Context context, List<AppEntry> entries, Listener listener) {
             super(context);
             this.entries = entries;
             this.listener = listener;
+            this.dark = skin == SKIN_HYPER || Palette.isNight(context);
             setLayerType(LAYER_TYPE_SOFTWARE, null);
-            textPaint.setColor(0xFFFFFFFF);
+            textPaint.setColor(Palette.fg(context));
             textPaint.setTextSize(dp(11));
             textPaint.setTextAlign(Paint.Align.CENTER);
         }
@@ -520,7 +524,8 @@ public class DemoOverlay {
             int alpha = (int) (255 * reveal);
             float scale = 0.78f + 0.22f * reveal;
             bg.setShader(new RadialGradient(cx, cy, (radius + dp(30)) * scale,
-                    0x33111111, 0x00111111, Shader.TileMode.CLAMP));
+                    dark ? 0x33111111 : 0x22000000,
+                    dark ? 0x00111111 : 0x00111111, Shader.TileMode.CLAMP));
             canvas.drawCircle(cx, cy, (radius + dp(30)) * scale, bg);
             bg.setShader(null);
 
@@ -531,8 +536,10 @@ public class DemoOverlay {
                 float y = cy - (float) (rr * Math.sin(angle));
                 float r = dp(i == selected ? 31 : 28) * scale;
                 iconPaint.setAlpha(alpha);
-                iconPaint.setColor(i == selected ? 0xCC1C1C1E : 0x991C1C1E);
-                iconPaint.setShadowLayer(dp(8), 0, dp(3), 0x66000000);
+                iconPaint.setColor(i == selected
+                        ? (dark ? 0xCC1C1C1E : 0xFFFFFFFF)
+                        : (dark ? 0x991C1C1E : 0xE6FFFFFF));
+                iconPaint.setShadowLayer(dp(8), 0, dp(3), dark ? 0x66000000 : 0x33000000);
                 canvas.drawCircle(x, y, r, iconPaint);
                 Drawable d = entries.get(i).icon;
                 d.setAlpha(alpha);
@@ -542,7 +549,7 @@ public class DemoOverlay {
                 textPaint.setAlpha(alpha);
                 canvas.drawText(entries.get(i).label, x, y + r + dp(13), textPaint);
             }
-            textPaint.setColor(0x99FFFFFF);
+            textPaint.setColor(dark ? 0x99FFFFFF : 0x99000000);
             canvas.drawText("斜向内上滑 · 松手打开", cx + dp(120), cy - dp(8), textPaint);
         }
 
