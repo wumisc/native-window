@@ -38,11 +38,15 @@ public final class SystemUiHook {
             "io.github.wumisc.nativewindow.action.FORCE_SMALL_WINDOW";
     private static final String EXTRA_TASK_ID = "task_id";
     private static final String EXTRA_BOUNDS = "bounds";
+    private static final String EXTRA_MODE = "mode";
+    private static final String EXTRA_SELF_TEST = "self_test";
+    private static final String MODULE_PKG = "io.github.wumisc.nativewindow";
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static volatile boolean sRequestReceiverRegistered;
 
     private static volatile Object sOrganizer;
     private static volatile Context sContext;
+    private static volatile int sModuleUid = -1;
     private static final android.util.SparseArray<Rect> sNormalBounds =
             new android.util.SparseArray<>();
 
@@ -160,11 +164,21 @@ public final class SystemUiHook {
             context.registerReceiver(new BroadcastReceiver() {
                 @Override public void onReceive(Context ctx, Intent intent) {
                     if (intent == null || !ACTION_FORCE_SMALL.equals(intent.getAction())) return;
-                    if (!isLauncherUid(ctx, getSentFromUid())) return;
+                    int sender = getSentFromUid();
+                    boolean launcher = isLauncherUid(ctx, sender);
+                    // 自检版允许模块 App 把自己的 task 交给 SystemUI 做一次 freeform 往返；
+                    // 必须显式带 self_test=true，避免普通 App 借这个口改任务。
+                    boolean selfTest = intent.getBooleanExtra(EXTRA_SELF_TEST, false)
+                            && isModuleUid(ctx, sender);
+                    if (!launcher && !selfTest) return;
                     int taskId = intent.getIntExtra(EXTRA_TASK_ID, -1);
                     if (taskId <= 0) return;
+                    int mode = intent.getIntExtra(EXTRA_MODE,
+                            SmallWindowBridge.WINDOWING_MODE_FREEFORM);
+                    if (mode != SmallWindowBridge.WINDOWING_MODE_FREEFORM
+                            && mode != SmallWindowBridge.WINDOWING_MODE_FULLSCREEN) return;
                     Rect bounds = intent.getParcelableExtra(EXTRA_BOUNDS);
-                    forceSmallWithRetry(taskId, bounds, 0);
+                    forceWindowWithRetry(taskId, mode, bounds, 0);
                 }
             }, filter, Context.RECEIVER_EXPORTED);
             sRequestReceiverRegistered = true;
@@ -185,13 +199,26 @@ public final class SystemUiHook {
         return false;
     }
 
-    private static void forceSmallWithRetry(int taskId, Rect bounds, int attempt) {
+    private static boolean isModuleUid(Context context, int uid) {
+        int cached = sModuleUid;
+        if (cached <= 0) {
+            try {
+                cached = context.getPackageManager().getPackageUid(MODULE_PKG, 0);
+                sModuleUid = cached;
+            } catch (Throwable ignored) {
+                return false;
+            }
+        }
+        return uid == cached;
+    }
+
+    private static void forceWindowWithRetry(int taskId, int mode, Rect bounds, int attempt) {
         Object info = getInfo(taskId);
         if (info != null) {
-            if (applyWindowMode(taskId, SmallWindowBridge.WINDOWING_MODE_FREEFORM, bounds)) return;
+            if (applyWindowMode(taskId, mode, bounds)) return;
         }
         if (attempt >= 5) return;
-        MAIN.postDelayed(() -> forceSmallWithRetry(taskId, bounds, attempt + 1), 80);
+        MAIN.postDelayed(() -> forceWindowWithRetry(taskId, mode, bounds, attempt + 1), 80);
     }
 
     /** 原生 caption 的“—”：第一次缩到迷你 bounds，第二次恢复。 */

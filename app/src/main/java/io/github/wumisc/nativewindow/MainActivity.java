@@ -6,6 +6,8 @@ import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
@@ -122,6 +124,17 @@ public class MainActivity extends Activity {
         root.addView(hint);
 
         setContentView(scroll);
+
+        // 0.6.0-selftest：打开主界面后自动进入自检页，不需要用户点任何按钮。
+        // 自检页和主界面在同一个 task 里，所以它测到的就是真实 task 的 freeform 往返。
+        if (savedInstanceState == null) {
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                try {
+                    startActivity(new Intent(this,
+                            io.github.wumisc.nativewindow.selftest.SelfTestActivity.class));
+                } catch (Throwable ignored) {}
+            }, 280);
+        }
     }
 
     private Button addButton(LinearLayout root, String text, View.OnClickListener listener) {

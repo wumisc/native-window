@@ -7,7 +7,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}}"
 BT="${BUILD_TOOLS:-$SDK/build-tools/37.0.0}"
-APK="${1:-$ROOT/dist/native-window-0.5.0-log-dark.apk}"
+APK="${1:-$ROOT/dist/native-window-0.6.0-selftest.apk}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -23,8 +23,8 @@ ng() { printf 'FAIL  %s\n' "$1"; fail=$((fail+1)); }
 BADGE="$("$BT/aapt2" dump badging "$APK")"
 echo "$BADGE" | grep -q "package: name='io.github.wumisc.nativewindow'" \
   && ok "package id" || ng "package id"
-echo "$BADGE" | grep -q "versionName='0.5.0-log-dark'" \
-  && ok "versionName 0.5.0-log-dark" || ng "versionName"
+echo "$BADGE" | grep -q "versionName='0.6.0-selftest'" \
+  && ok "versionName 0.6.0-selftest" || ng "versionName"
 echo "$BADGE" | grep -q "targetSdkVersion:'37'" \
   && ok "targetSdk 37" || ng "targetSdk"
 
@@ -39,6 +39,8 @@ echo "$MANIFEST" | grep -q 'io.github.wumisc.nativewindow.logs' \
   && ok "LogProvider authority" || ng "LogProvider authority"
 echo "$MANIFEST" | grep -q '\.MainActivity' \
   && ok "MainActivity declared" || ng "MainActivity missing"
+echo "$MANIFEST" | grep -q '\.selftest\.SelfTestActivity' \
+  && ok "SelfTestActivity declared" || ng "SelfTestActivity missing"
 echo "$MANIFEST" | grep -q '\.OverlayService' \
   && ok "OverlayService declared" || ng "OverlayService missing"
 echo "$MANIFEST" | grep -q 'xposedmodule' \
@@ -53,6 +55,7 @@ for cls in \
   io/github/wumisc/nativewindow/hook/LauncherHook \
   io/github/wumisc/nativewindow/hook/NativeCaptionDecorator \
   io/github/wumisc/nativewindow/hook/NativeCapsuleView \
+  io/github/wumisc/nativewindow/selftest/SelfTestActivity \
   io/github/wumisc/nativewindow/log/LogCollector \
   io/github/wumisc/nativewindow/log/LogProvider \
   io/github/wumisc/nativewindow/Palette

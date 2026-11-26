@@ -4,6 +4,19 @@
 > 目标设备：**PixelOS 17 / LineageOS 17**（Android 17，API 37）。  
 > 形态：**LSPosed + Root**，AGPL-3.0。
 
+## 0.6.0-selftest：打开即自动测
+
+0.5.0 的问题一直是“装了，但不知道哪一步没生效”。0.6.0 不再让用户点按钮：
+
+- 打开主界面 280ms 后自动进入 `SelfTestActivity`；
+- 自检页直接把自己的 task 交给 SystemUI 做一次 **freeform 往返**：`FREEFORM` → 观察窗口尺寸变小 → 恢复 `FULLSCREEN`；
+- 结果页直接显示“核心链路通过/未通过”，并给出 LSPosed 作用域排查顺序；
+- SystemUI 的接收器新增 `self_test=true` 白名单：只允许模块 UID 做这一次自检，普通 App 仍然不能改任务。
+
+自检页不依赖 Launcher 菜单，也不自动拉起第三方 App；它测的是 system_server 门禁 + SystemUI WCT + task 实际尺寸，比重装一次再猜要直接。
+
+完整说明见 [SELFTEST.md](SELFTEST.md)。当前静态冒烟 28/28；真机结果仍需在设备上跑。
+
 ## 0.5.0-log-dark 做了什么
 
 0.3.0 已经接进真实 freeform，但 chrome 还是 App 悬浮窗；观感上一定是“胶囊先动、窗口后动”的两张皮。0.4.1 把 chrome 迁进 SystemUI 的原生 `CaptionWindowDecoration`，让胶囊和 Task surface 共用同一个 Surface：
@@ -169,6 +182,7 @@ TaskOverlayFactory 菜单
 | 多窗 / 分屏 / 桌面模式 | ❌ | 首版不做 |
 | 日志分享 / root 抓取 | ✅ 代码完成 | 普通 logcat → su 兜底；Provider 分享 |
 | 深色模式 | ✅ 代码完成 | 主界面、预览、原生胶囊跟随系统 uiMode |
+| 自动自检页 | ✅ 代码完成，待真机 | 打开即测 freeform 往返，不需要点按钮 |
 | 真机回归 | ❌ | 当前环境无 adb 设备、无 emulator |
 
 ## 目录
@@ -208,7 +222,7 @@ native-window/
 export ANDROID_HOME=$HOME/Android/Sdk
 export JAVA_HOME=/path/to/jdk-17
 bash scripts/build.sh
-# 输出：dist/native-window-0.5.0-log-dark.apk
+# 输出：dist/native-window-0.6.0-selftest.apk
 ```
 
 ### Android Studio
