@@ -4,6 +4,18 @@
 > 目标设备：**PixelOS 17 / LineageOS 17**（Android 17，API 37）。  
 > 形态：**LSPosed + Root**，AGPL-3.0。
 
+## 0.8.1-activitystarter：用 HyperCeiler 验证过的入口
+
+0.8.0 挂错了类，`ActivityStarterInjector` 在 HyperOS 4 上不是实际切入点。
+0.8.1 改为 `com.android.server.wm.ActivityStarter#executeRequest`：
+
+- 从 `request.intent` 读目标 Intent；
+- 只处理带 `nativewindow.extra.FREEFORM` 标记的启动；
+- 用 `MiuiMultiWindowUtils.getActivityOptions(context, pkg, true, false)` 生成 options；
+- 调用 `ActivityStarter#setActivityOptions(Bundle)`。
+
+这个路径与 HyperCeiler `OpenAppInFreeForm` 的结构一致。
+
 ## 0.8.0-app-picker：真正从 App 里打开任意小窗
 
 - 主界面新增“选择应用开小窗”，列出所有 Launcher 应用，点一下直接以 freeform 拉起。

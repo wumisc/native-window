@@ -36,8 +36,7 @@ public final class HyperOsSystemServerHook {
                     "isResizeable", true);
             clearBlacklists(lp.classLoader);
             hookFreeformLimit(lp.classLoader);
-            hookProbeLaunchOptions(lp.classLoader);
-            hookTaggedStartActivity(lp.classLoader);
+            hookActivityStarter(lp.classLoader);
             XposedBridge.log(TAG + ": HyperOS freeform gates installed");
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": install failed " + t);
@@ -61,108 +60,64 @@ public final class HyperOsSystemServerHook {
     }
 
     /**
-     * HyperOS 的 ActivityStarterInjector 会在最后一步按“是否在白名单”重算
-     * ActivityOptions，App 自己传的 freeform 可能被改回 fullscreen。
-     * 只对我们自己的 ProbeActivity 强制写 FREEFORM，用来验证系统链路。
+     * 真正可用的 HyperOS 开小窗切入点：ActivityStarter#executeRequest。
+     *
+     * HyperCeiler 的 OpenAppInFreeForm 已验证：
+     * - request.intent 是目标 Intent；
+     * - request.callingPackage 是调用方；
+     * - ActivityStarter 自己有 setActivityOptions(Bundle)；
+     * - MiuiMultiWindowUtils.getActivityOptions(context, pkg, true, false) 返回
+     *   HyperOS 认的 freeform options。
+     *
+     * 之前挂 ActivityStarterInjector 是猜错了类，所以 0.8.0 一点反应都没有。
      */
-    private static void hookProbeLaunchOptions(ClassLoader cl) {
+    private static void hookActivityStarter(ClassLoader cl) {
         try {
-            Class<?> cls = XposedHelpers.findClassIfExists(
-                    "com.android.server.wm.ActivityStarterInjector", cl);
-            if (cls == null) {
-                XposedBridge.log(TAG + ": ActivityStarterInjector not found");
+            Class<?> starter = XposedHelpers.findClassIfExists(
+                    "com.android.server.wm.ActivityStarter", cl);
+            if (starter == null) {
+                XposedBridge.log(TAG + ": ActivityStarter not found");
                 return;
             }
-            XposedBridge.hookAllMethods(cls, "modifyLaunchActivityOptionIfNeed",
-                    new XC_MethodHook() {
-                        @Override protected void afterHookedMethod(MethodHookParam param) {
-                            try {
-                                if (param.args == null || param.args.length < 8) return;
-                                Object intentObj = param.args[5];
-                                if (!(intentObj instanceof android.content.Intent)) return;
-                                android.content.Intent intent = (android.content.Intent) intentObj;
-                                if (intent.getComponent() == null) return;
-                                if (!intent.getBooleanExtra(
-                                        "io.github.wumisc.nativewindow.extra.FREEFORM",
-                                        false)) return;
-                                Object res = param.getResult();
-                                android.app.ActivityOptions options =
-                                        res instanceof android.app.ActivityOptions
-                                                ? (android.app.ActivityOptions) res
-                                                : android.app.ActivityOptions.makeBasic();
-                                android.graphics.Rect rect = freeformRect();
-                                XposedHelpers.callMethod(options,
-                                        "setLaunchWindowingMode", 5);
-                                options.setLaunchBounds(rect);
-                                try {
-                                    XposedHelpers.callMethod(options,
-                                            "setMiuiConfigFlag", 2);
-                                } catch (Throwable ignored) {}
-                                try {
-                                    Object injector = XposedHelpers.callMethod(options,
-                                            "getActivityOptionsInjector");
-                                    if (injector != null) XposedHelpers.callMethod(
-                                            injector, "setFreeformScale", 0.7f);
-                                } catch (Throwable ignored) {}
-                                param.setResult(options);
-                                XposedBridge.log(TAG + ": forced probe freeform "
-                                        + rect.flattenToString());
-                            } catch (Throwable t) {
-                                XposedBridge.log(TAG + ": probe options failed " + t);
-                            }
-                        }
-                    });
-            XposedBridge.log(TAG + ": probe launch options hooked");
-        } catch (Throwable t) {
-            XposedBridge.log(TAG + ": probe launch hook failed " + t);
-        }
-    }
+            XposedBridge.hookAllMethods(starter, "executeRequest", new XC_MethodHook() {
+                @Override protected void beforeHookedMethod(MethodHookParam param) {
+                    try {
+                        if (param.args == null || param.args.length < 1) return;
+                        Object request = param.args[0];
+                        Object intentObj = XposedHelpers.getObjectField(request, "intent");
+                        if (!(intentObj instanceof android.content.Intent)) return;
+                        android.content.Intent intent = (android.content.Intent) intentObj;
+                        if (!intent.getBooleanExtra(
+                                "io.github.wumisc.nativewindow.extra.FREEFORM", false)) return;
+                        android.content.ComponentName cn = intent.getComponent();
+                        String pkg = cn != null ? cn.getPackageName() : intent.getPackage();
+                        if (pkg == null) return;
 
-    /**
-     * Binder 入口兜底：App 调用 startActivity 时 bOptions 是 Bundle，
-     * 这里只处理带 nativewindow FREEFORM 标记的 Intent，避免影响系统正常启动。
-     */
-    private static void hookTaggedStartActivity(ClassLoader cl) {
-        try {
-            Class<?> atms = XposedHelpers.findClassIfExists(
-                    "com.android.server.wm.ActivityTaskManagerService", cl);
-            if (atms == null) {
-                XposedBridge.log(TAG + ": ATMS not found for tagged start");
-                return;
-            }
-            for (String method : new String[]{"startActivity", "startActivityAsUser",
-                    "startActivityAsUserFromRecents"}) {
-                XposedBridge.hookAllMethods(atms, method, new XC_MethodHook() {
-                    @Override protected void beforeHookedMethod(MethodHookParam param) {
-                        try {
-                            if (param.args == null) return;
-                            android.content.Intent intent = null;
-                            android.os.Bundle bundle = null;
-                            for (Object arg : param.args) {
-                                if (arg instanceof android.content.Intent) intent =
-                                        (android.content.Intent) arg;
-                                if (arg instanceof android.os.Bundle) bundle =
-                                        (android.os.Bundle) arg;
-                            }
-                            if (intent == null) return;
-                            if (!intent.getBooleanExtra(
-                                    "io.github.wumisc.nativewindow.extra.FREEFORM",
-                                    false)) return;
-                            if (bundle == null) return;
-                            android.graphics.Rect rect = freeformRect();
-                            bundle.putInt("android.activity.windowingMode", 5);
-                            bundle.putParcelable("android:activity.launchBounds", rect);
-                            XposedBridge.log(TAG + ": tagged ATMS." + method
-                                    + " -> freeform " + rect.flattenToString());
-                        } catch (Throwable t) {
-                            XposedBridge.log(TAG + ": tagged ATMS patch failed " + t);
+                        Object service = XposedHelpers.getObjectField(
+                                param.thisObject, "mService");
+                        Object context = XposedHelpers.getObjectField(service, "mContext");
+                        Class<?> utils = XposedHelpers.findClass(
+                                "android.util.MiuiMultiWindowUtils", cl);
+                        Object options = XposedHelpers.callStaticMethod(utils,
+                                "getActivityOptions", context, pkg, true, false);
+                        if (options instanceof android.app.ActivityOptions) {
+                            XposedHelpers.callMethod(param.thisObject,
+                                    "setActivityOptions",
+                                    ((android.app.ActivityOptions) options).toBundle());
+                            XposedBridge.log(TAG + ": executeRequest -> freeform "
+                                    + pkg);
+                        } else {
+                            XposedBridge.log(TAG + ": getActivityOptions returned "
+                                    + options + " for " + pkg);
                         }
+                    } catch (Throwable t) {
+                        XposedBridge.log(TAG + ": executeRequest freeform failed " + t);
                     }
-                });
-            }
-            XposedBridge.log(TAG + ": tagged ATMS start hooked");
+                }
+            });
+            XposedBridge.log(TAG + ": ActivityStarter.executeRequest hooked");
         } catch (Throwable t) {
-            XposedBridge.log(TAG + ": tagged ATMS hook failed " + t);
+            XposedBridge.log(TAG + ": ActivityStarter hook failed " + t);
         }
     }
 
