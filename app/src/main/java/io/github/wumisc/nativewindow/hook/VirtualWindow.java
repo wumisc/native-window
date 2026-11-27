@@ -43,6 +43,7 @@ import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 import io.github.wumisc.nativewindow.anim.SpringAnimator;
 import io.github.wumisc.nativewindow.core.GeometryPolicy;
+import io.github.wumisc.nativewindow.core.RomProfile;
 
 /**
  * 一块“米窗”式悬浮卡片：虚拟屏承载真实 Activity，TextureView 显示画面，
@@ -68,6 +69,7 @@ final class VirtualWindow {
     private final ComponentName component;
     private final int userId;
     private final VirtualWindowInput input = new VirtualWindowInput();
+    private final RomProfile profile;
 
     private final FrameLayout root;
     private final LinearLayout card;
@@ -147,6 +149,7 @@ final class VirtualWindow {
         dp30 = Math.round(30 * d);
         dp24 = Math.round(24 * d);
         densityDpi = context.getResources().getDisplayMetrics().densityDpi;
+        profile = RomProfile.detect(context);
 
         refreshScreenMetrics();
 
@@ -156,8 +159,8 @@ final class VirtualWindow {
         fgColor = night ? 0xFFF2F3F5 : 0xFF1B1C1E;
         subColor = night ? 0xFFB8BAC0 : 0xFF70737A;
 
-        originalWidth = contentWidth = Math.max(Math.round(screenWidth * 0.82f), dp(300));
-        originalHeight = contentHeight = Math.max(Math.round(screenHeight * 0.56f), dp(420));
+        originalWidth = contentWidth = Math.max(Math.round(screenWidth * profile.windowWidthRatio), dp(300));
+        originalHeight = contentHeight = Math.max(Math.round(screenHeight * profile.windowHeightRatio), dp(420));
 
         root = new FrameLayout(context);
         root.setPadding(dp10, dp10, dp10, dp10);
@@ -326,6 +329,7 @@ final class VirtualWindow {
             displayId = virtualDisplay.getDisplay().getDisplayId();
             applyImePolicyLocal();
             XposedBridge.log(TAG + ": virtualDisplay=" + displayId
+                    + " rom=" + profile.displayName
                     + " size=" + contentWidth + "x" + contentHeight + " dpi=" + densityDpi);
         }
         displayManager.registerDisplayListener(displayListener, new Handler(Looper.getMainLooper()));
@@ -850,7 +854,7 @@ final class VirtualWindow {
                         }
                     } else {
                         int side = GeometryPolicy.snapSide(params.x, params.width,
-                                screenWidth, dp(60));
+                                screenWidth, dp(profile.edgeThresholdDp));
                         if (side != GeometryPolicy.SIDE_NONE) snapToEdge(side);
                     }
                     return true;

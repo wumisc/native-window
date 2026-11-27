@@ -11,7 +11,7 @@ YAMF（另一个米窗）证明另一条路是可行的：**不碰 WMS freeform*
 - YAMF：`https://github.com/duzhaokun123/YAMF`，GPL-3.0，核心 `AppWindow.kt` / `YAMFManager.kt` / `HookSystem.kt` / `HookLauncher.kt`。
 - Free（Flyme 小窗）：`https://github.com/Hoerire/Free`，GPL-3.0，扇形菜单、迷你窗、贴边状态机作为后续交互参考。
 
-## 当前实现（1.0.0-alpha2）
+## 当前实现（1.0.0-alpha3）
 
 ### 进程与职责
 
@@ -43,6 +43,7 @@ YAMF（另一个米窗）证明另一条路是可行的：**不碰 WMS freeform*
 - 贴边：标题栏拖到左右边缘松手后收成侧边把手；点把手恢复原位置。位置/尺寸切换走弹簧动画。
 - 多窗：同一包名或同一 taskId 再次开窗时复用已有窗口并置顶；引擎保留窗口列表。
 - 任务自己退出：看门狗轮询虚拟屏根任务，为空就收卡片。
+- ROM 画像：`RomProfile` 区分 PixelOS、LineageOS、AOSP；窗口比例、贴边阈值和已知启动器包名按画像回退，类名/权限缺失时 fail-open。
 
 ### 安全边界
 
@@ -50,21 +51,22 @@ YAMF（另一个米窗）证明另一条路是可行的：**不碰 WMS freeform*
 - 不修改系统分区，不注入系统 UI 资源，不依赖 HyperOS 私有类。
 - 单窗失败只影响当前卡片，不阻断系统启动（所有 Hook fail-open）。
 
-## 已知限制（alpha2）
+## 已知限制（alpha3）
 
 1. **IME 待真机背书**：已设置本地 IME policy，并提供键盘按钮临时移除 `FLAG_NOT_FOCUSABLE` / `FLAG_ALT_FOCUSABLE_IM`；但 system_server overlay 能否拿到焦点、候选词和面板是否落在虚拟屏，仍需日志确认。
 2. **横屏/旋转仍待真机确认**：已监听默认屏旋转并重新夹取窗口位置；通过动态代理注册任务栈回调，识别应用请求的横屏/竖屏并自动交换虚拟屏宽高；传感器自动旋转、反向横屏等组合方向还未完全覆盖。
 3. **多窗层叠仍是基础版**：支持复用、置顶和列表，尚未做数量上限、失焦降级、独立层级通道和多窗手势切换。
 4. **贴边/迷你未持久化**：贴边把手和迷你尺寸只保存在内存，重启或关闭后不恢复；熄屏保活、边缘把手拖动还未做。
 5. **桌面入口**：最近任务菜单按 YAMF 的字段和构造函数修了，但还没有在类原生真机确认菜单项出现。
+6. **ROM 类名回退仍是静态候选**：Pixel Launcher 或 Trebuchet 若 R8/定制改名，需要 LSPosed 日志确认实际类名；当前只保留 Quickstep、Launcher3 两组候选。
 
 ## 测试步骤
 
-1. 安装 `native-window-1.0.0-alpha2.apk`。
+1. 安装 `native-window-1.0.0-alpha3.apk`。
 2. LSPosed 作用域至少勾选：系统框架（`android`）、Pixel Launcher / Launcher3；如果用最近任务入口，桌面必须勾选。
 3. 重启系统框架（或重启手机）。
 4. 打开模块 → “选择应用开小窗” → 点“设置”。
-5. 预期：选择页退出，屏幕中央出现一张 82% 宽、56% 高的悬浮卡片；标题栏显示“设置”和图标；卡片里是真实设置页面。
+5. 预期：选择页退出，屏幕中央出现悬浮卡片；PixelOS 默认约 82% 宽、56% 高，LineageOS 默认约 80% 宽、54% 高；标题栏显示“设置”和图标；卡片里是真实设置页面。
 6. 拖标题栏移动；拖右下角 `◢` 缩放；点“返回/桌面/全屏/关闭”。
 7. 查看 LSPosed 日志关键字：`NativeWindow/VWE`、`NativeWindow/VW`、`NativeWindow/VWI`。
 

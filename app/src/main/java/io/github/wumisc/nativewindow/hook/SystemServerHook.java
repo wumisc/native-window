@@ -2,6 +2,7 @@ package io.github.wumisc.nativewindow.hook;
 
 import android.content.ContentResolver;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.os.Binder;
 
 import java.lang.reflect.Method;
@@ -10,6 +11,7 @@ import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
+import io.github.wumisc.nativewindow.core.RomProfile;
 
 /**
  * system_server 门禁：PixelOS 17 / LineageOS 24.0（Android 17）的 freeform 开关。
@@ -29,6 +31,8 @@ public final class SystemServerHook {
             "android.permission.MANAGE_ACTIVITY_TASKS";
 
     private static volatile int sModuleUid = -1;
+    private static volatile Context sContext;
+    private static volatile RomProfile sProfile;
 
     private SystemServerHook() {}
 
@@ -64,26 +68,61 @@ public final class SystemServerHook {
     }
 
     private static void patch(Object service) {
+        ensureProfile(service);
         setBool(service, "mSupportsMultiWindow");
         setBool(service, "mSupportsFreeformWindowManagement");
         setBool(service, "mForceResizableActivities");
-        setBool(service, "mDevEnableNonResizableMultiWindow");
-        setInt(service, "mSupportsNonResizableMultiWindow", 1);
+        if (sProfile == null || sProfile.supportsNonResizableMultiWindow) {
+            setBool(service, "mDevEnableNonResizableMultiWindow");
+            setInt(service, "mSupportsNonResizableMultiWindow", 1);
+        }
         resolveModuleUid(service);
+    }
+
+    private static void ensureProfile(Object service) {
+        if (sProfile != null) return;
+        try {
+            Object ctx = XposedHelpers.getObjectField(service, "mContext");
+            if (ctx instanceof Context) {
+                sContext = (Context) ctx;
+                sProfile = RomProfile.detect(sContext);
+                XposedBridge.log(TAG + ": rom=" + sProfile.displayName
+                        + " kind=" + sProfile.kind
+                        + " launchers=" + sProfile.launcherPackages);
+            }
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": rom profile failed " + t);
+        }
+        if (sProfile == null) sProfile = RomProfile.detect(null);
     }
 
     private static void resolveModuleUid(Object service) {
         if (sModuleUid > 0) return;
         try {
-            Object ctx = XposedHelpers.getObjectField(service, "mContext");
+            Object ctx = sContext != null ? sContext
+                    : XposedHelpers.getObjectField(service, "mContext");
             if (ctx instanceof Context) {
-                sModuleUid = ((Context) ctx).getPackageManager()
+                sContext = (Context) ctx;
+                sModuleUid = sContext.getPackageManager()
                         .getPackageUid(MODULE_PKG, 0);
                 XposedBridge.log(TAG + ": moduleUid=" + sModuleUid);
             }
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": resolve module uid failed " + t);
         }
+    }
+
+    private static boolean isAllowedTaskUid(int uid) {
+        if (uid == 1000 || uid == 0) return true;
+        if (sModuleUid > 0 && uid == sModuleUid) return true;
+        if (sContext == null) return false;
+        PackageManager pm = sContext.getPackageManager();
+        for (String pkg : RomProfile.knownLauncherPackages()) {
+            try {
+                if (uid == pm.getPackageUid(pkg, 0)) return true;
+            } catch (Throwable ignored) {}
+        }
+        return false;
     }
 
     private static void hookPermissionBypass(XC_LoadPackage.LoadPackageParam lp) {
@@ -97,7 +136,7 @@ public final class SystemServerHook {
                     String permission = (String) param.args[0];
                     if (!PERM_START_FROM_RECENTS.equals(permission)
                             && !PERM_MANAGE_ACTIVITY_TASKS.equals(permission)) return;
-                    if (sModuleUid > 0 && Binder.getCallingUid() == sModuleUid) {
+                    if (isAllowedTaskUid(Binder.getCallingUid())) {
                         param.setResult(null);
                     }
                 }

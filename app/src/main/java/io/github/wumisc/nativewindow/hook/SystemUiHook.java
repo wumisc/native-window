@@ -314,13 +314,13 @@ public final class SystemUiHook {
         return null;
     }
 
-    private static boolean isLauncherUid(Context context, int uid) {        PackageManager pm = context.getPackageManager();
-        try {
-            if (uid == pm.getPackageUid("com.android.launcher3", 0)) return true;
-        } catch (Throwable ignored) {}
-        try {
-            if (uid == pm.getPackageUid("com.google.android.apps.nexuslauncher", 0)) return true;
-        } catch (Throwable ignored) {}
+    private static boolean isLauncherUid(Context context, int uid) {
+        PackageManager pm = context.getPackageManager();
+        for (String pkg : io.github.wumisc.nativewindow.core.RomProfile.knownLauncherPackages()) {
+            try {
+                if (uid == pm.getPackageUid(pkg, 0)) return true;
+            } catch (Throwable ignored) {}
+        }
         return false;
     }
 

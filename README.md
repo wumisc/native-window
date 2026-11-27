@@ -1,8 +1,16 @@
 # native-window
 
-> 类原生 Android 17 的 HyperOS 3 / Flyme 风格小窗；0.6.1 增加 HyperOS 4 自检分支。  
+> 类原生 Android 17 虚拟屏小窗；当前基线 `1.0.0-alpha3`，主线面向 **PixelOS 17 / LineageOS 17**。  
 > 目标设备：**PixelOS 17 / LineageOS 17**（Android 17，API 37）。  
 > 形态：**LSPosed + Root**，AGPL-3.0。
+
+## 1.0.0-alpha3：ROM 适配层
+
+- `RomProfile` 保守识别 PixelOS / LineageOS / AOSP；识别不到回退 AOSP，不硬套私有 Hook。
+- system_server 按画像打开多窗/freeform/非可缩放应用门禁；任务权限放行覆盖模块 UID、system/root、已知 Launcher UID。
+- Launcher Hook 保留 Quickstep 与 Launcher3 两组 `TaskOverlayFactory` / `RemoteActionShortcut` 类名候选。
+- 虚拟屏窗口比例、贴边阈值按 ROM 画像区分；Alpha2 已接 IME、旋转、多窗置顶、贴边迷你与弹簧动画。
+- 适配矩阵与待真机背书项见 [docs/ROM_ADAPTATION.md](docs/ROM_ADAPTATION.md)；虚拟屏链路见 [docs/VIRTUAL_WINDOW.md](docs/VIRTUAL_WINDOW.md)。
 
 ## 0.9.0-aosp-first：回到类原生主线
 
@@ -263,19 +271,18 @@ TaskOverlayFactory 菜单
 
 | 模块 | 状态 | 说明 |
 |---|---|---|
-| HyperOS 3 chrome 预览 | ✅ | 圆角、胶囊、底部把手、迷你 chip、Flyme 皮肤 |
-| 自研弹簧动画 | ✅ | `SpringAnimator`：半隐式欧拉 + 4 子步，60/90/120/144Hz 一致 |
-| 最近任务菜单 | ✅ 代码完成，待真机 | LOS / Pixel 同一套 `TaskOverlayFactory` Hook |
-| 真实 freeform 开窗 | ✅ 代码完成，待真机 | `FREEFORM=5` + Bundle + Launcher 权限 |
-| SystemUI 原生 caption | ✅ 代码完成，待真机 | 保留 AOSP caption，在里面塞项目胶囊 |
-| WCT 移动/缩放 | ✅ 代码完成，待真机 | `ShellTaskOrganizer#applyTransaction` |
-| 迷你/全屏/关闭 | ✅ 代码完成，待真机 | 原生胶囊按钮 → 改 bounds / 改 windowingMode / removeTask |
-| Pixel Launcher DexKit 指纹 | ⏳ | 当前按类名，R8 改名后需要 DexKit |
-| 多窗 / 分屏 / 桌面模式 | ❌ | 首版不做 |
+| 虚拟屏开窗 | ✅ 代码完成，待真机 | system_server 创建虚拟屏，Activity 启动到虚拟屏，TextureView 镜像 |
+| 拖动 / 缩放 / 底栏 | ✅ 代码完成，待真机 | 标题栏拖动、右下角缩放；返回/桌面/旋转/全屏/关闭/键盘 |
+| 最近任务菜单 | ✅ 代码完成，待真机 | LOS / Pixel 两组工厂与 Shortcut 类名候选回退 |
+| IME 本地策略 | ✅ 代码完成，待真机 | 本地 IME policy + 键盘按钮；候选词落点未真机背书 |
+| 旋转 / 多窗置顶 | ✅ 代码完成，待真机 | 默认屏监听、任务栈方向代理；同包/同 taskId 复用置顶 |
+| 贴边迷你 / 弹簧动画 | ✅ 代码完成，待真机 | 左右贴边把手、双击迷你、弹簧切换；状态未持久化 |
+| ROM 画像 | ✅ 代码完成，待真机 | PixelOS / LOS / AOSP 保守识别，未知 ROM fail-open |
+| Pixel Launcher DexKit 指纹 | ⏳ | 当前按类名候选，R8 改名后需要 DexKit/日志指纹 |
+| 侧边栏 / 扇形 / 通知小窗 | ❌ | 首版不做 |
 | 日志分享 / root 抓取 | ✅ 代码完成 | 普通 logcat → su 兜底；Provider 分享 |
-| 深色模式 | ✅ 代码完成 | 主界面、预览、原生胶囊跟随系统 uiMode |
-| 自动自检页 | ✅ 代码完成，待真机 | 打开即测 freeform 往返，不需要点按钮 |
-| 真机回归 | ❌ | 当前环境无 adb 设备、无 emulator |
+| 深色模式 | ✅ 代码完成 | 主界面跟随系统 uiMode |
+| 真机回归 | ❌ | 当前环境不启动模拟器/adb；需要用户在类原生设备回执日志 |
 
 ## 目录
 

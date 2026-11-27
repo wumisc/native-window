@@ -98,13 +98,26 @@ public final class LauncherHook {
     }
 
     private static void hookTaskOverlay(XC_LoadPackage.LoadPackageParam lp) {
-        Class<?> factory = XposedHelpers.findClassIfExists(
-                "com.android.quickstep.TaskOverlayFactory", lp.classLoader);
+        String[] factoryCandidates = {
+                "com.android.quickstep.TaskOverlayFactory",
+                "com.android.launcher3.quickstep.TaskOverlayFactory"
+        };
+        Class<?> factory = null;
+        String hookedFactory = null;
+        for (String name : factoryCandidates) {
+            factory = XposedHelpers.findClassIfExists(name, lp.classLoader);
+            if (factory != null) {
+                hookedFactory = name;
+                break;
+            }
+        }
         if (factory == null) {
             XposedBridge.log(TAG + ": TaskOverlayFactory not found in " + lp.packageName);
             return;
         }
-        XposedBridge.hookAllMethods(factory, "getEnabledShortcuts", new XC_MethodHook() {
+        final Class<?> overlayFactory = factory;
+        final String overlayFactoryName = hookedFactory;
+        XposedBridge.hookAllMethods(overlayFactory, "getEnabledShortcuts", new XC_MethodHook() {
             @Override protected void afterHookedMethod(MethodHookParam param) {
                 if (!(param.getResult() instanceof List)) return;
                 if (param.args.length < 1 || !(param.args[0] instanceof View)) return;
@@ -132,7 +145,7 @@ public final class LauncherHook {
             }
         });
         XposedBridge.log(TAG + ": recents hook installed ("
-                + LauncherPackages.displayName(lp.packageName) + ")");
+                + LauncherPackages.displayName(lp.packageName) + " factory=" + overlayFactoryName + ")");
     }
 
     private static boolean containsSmallWindow(List shortcuts) {
@@ -180,9 +193,16 @@ public final class LauncherHook {
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
             RemoteAction action = new RemoteAction(icon(context), "小窗", "在悬浮卡片里打开", pending);
-            Class<?> shortcutClass = XposedHelpers.findClassIfExists(
+            Class<?> shortcutClass = null;
+            String[] shortcutCandidates = {
                     "com.android.launcher3.popup.RemoteActionShortcut",
-                    taskView.getClass().getClassLoader());
+                    "com.android.quickstep.popup.RemoteActionShortcut"
+            };
+            for (String name : shortcutCandidates) {
+                shortcutClass = XposedHelpers.findClassIfExists(name,
+                        taskView.getClass().getClassLoader());
+                if (shortcutClass != null) break;
+            }
             if (shortcutClass == null) return null;
             for (Constructor<?> ctor : shortcutClass.getDeclaredConstructors()) {
                 Class<?>[] p = ctor.getParameterTypes();

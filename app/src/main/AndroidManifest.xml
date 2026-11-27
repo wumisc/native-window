@@ -1,7 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.wumisc.nativewindow"
-    android:versionCode="24"
-    android:versionName="1.0.0-alpha2">
+    android:versionCode="25"
+    android:versionName="1.0.0-alpha3">
 
     <uses-sdk android:minSdkVersion="34" android:targetSdkVersion="37" />
 
@@ -24,7 +24,7 @@
         android:theme="@style/AppTheme">
 
         <meta-data android:name="xposedmodule" android:value="true" />
-        <meta-data android:name="xposeddescription" android:value="Android 17 freeform 原生 caption 小窗 · PixelOS / LineageOS · HyperOS 3 胶囊" />
+        <meta-data android:name="xposeddescription" android:value="Android 17 类原生虚拟屏小窗 · PixelOS / LineageOS 适配" />
         <meta-data android:name="xposedminversion" android:value="93" />
         <meta-data android:name="xposedscope" android:resource="@array/xposed_scope" />
 

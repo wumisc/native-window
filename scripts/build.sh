@@ -53,7 +53,7 @@ if [ ! -f "$KS" ]; then
     -dname "CN=Android Debug,O=Android,C=US" >/dev/null 2>&1
 fi
 "$BT/apksigner" sign --ks "$KS" --ks-pass pass:android --key-pass pass:android \
-  --out "$DIST/native-window-1.0.0-alpha2.apk" "$OUT/aligned.apk"
+  --out "$DIST/native-window-1.0.0-alpha3.apk" "$OUT/aligned.apk"
 
-"$BT/apksigner" verify "$DIST/native-window-1.0.0-alpha2.apk"
-echo "OK: $DIST/native-window-1.0.0-alpha2.apk"
+"$BT/apksigner" verify "$DIST/native-window-1.0.0-alpha3.apk"
+echo "OK: $DIST/native-window-1.0.0-alpha3.apk"

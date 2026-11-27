@@ -7,7 +7,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}}"
 BT="${BUILD_TOOLS:-$SDK/build-tools/37.0.0}"
-APK="${1:-$ROOT/dist/native-window-1.0.0-alpha2.apk}"
+APK="${1:-$ROOT/dist/native-window-1.0.0-alpha3.apk}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -23,8 +23,8 @@ ng() { printf 'FAIL  %s\n' "$1"; fail=$((fail+1)); }
 BADGE="$("$BT/aapt2" dump badging "$APK")"
 echo "$BADGE" | grep -q "package: name='io.github.wumisc.nativewindow'" \
   && ok "package id" || ng "package id"
-echo "$BADGE" | grep -q "versionName='1.0.0-alpha2'" \
-  && ok "versionName 1.0.0-alpha2" || ng "versionName"
+echo "$BADGE" | grep -q "versionName='1.0.0-alpha3'" \
+  && ok "versionName 1.0.0-alpha3" || ng "versionName"
 echo "$BADGE" | grep -q "targetSdkVersion:'37'" \
   && ok "targetSdk 37" || ng "targetSdk"
 
@@ -76,7 +76,8 @@ for cls in \
   io/github/wumisc/nativewindow/core/LaunchPolicy \
   io/github/wumisc/nativewindow/core/CloseDecision \
   io/github/wumisc/nativewindow/core/ClosePolicy \
-  io/github/wumisc/nativewindow/core/GeometryPolicy
+  io/github/wumisc/nativewindow/core/GeometryPolicy \
+  io/github/wumisc/nativewindow/core/RomProfile
  do
   grep -q "L$cls;" "$TMP/dexdump.txt" && ok "dex: $cls" || ng "dex missing: $cls"
  done
@@ -96,6 +97,12 @@ grep -q "snapToEdge" "$ROOT/app/src/main/java/io/github/wumisc/nativewindow/hook
   && ok "edge snap wired" || ng "edge snap missing"
 grep -q "bringToTop" "$ROOT/app/src/main/java/io/github/wumisc/nativewindow/hook/VirtualWindowEngine.java" \
   && ok "multi-window z-order wired" || ng "z-order missing"
+grep -q "RomProfile.detect" "$ROOT/app/src/main/java/io/github/wumisc/nativewindow/hook/SystemServerHook.java" \
+  && ok "ROM profile wired in system_server" || ng "ROM profile missing"
+grep -q "org.lineageos.launcher" "$ROOT/app/src/main/res/values/arrays.xml" \
+  && ok "Lineage launcher scope present" || ng "Lineage launcher scope missing"
+grep -q "com.android.quickstep" "$ROOT/app/src/main/res/values/arrays.xml" \
+  && ok "Quickstep scope present" || ng "Quickstep scope missing"
 
 [ -f "$ROOT/app/src/main/res/values-night/styles.xml" ] \
   && ok "values-night theme present" || ng "values-night theme missing"

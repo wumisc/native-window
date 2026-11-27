@@ -106,3 +106,28 @@
 - 传感器自动旋转、反向横屏等组合方向尚未完全覆盖；任务栈回调代理在不同 ROM 上的方法名/参数仍需日志确认。
 - 多窗还没有数量上限、失焦降级、独立层级通道和手势切换。
 - 贴边/迷你状态未持久化，关闭或重启后不恢复。
+
+## Cycle 4 · PixelOS / LineageOS ROM 适配层（2026-11-27）
+
+**目标**：主线面向类原生 AOSP 17；先给 PixelOS 17 与 LineageOS 17 做保守画像、启动器回退和权限放行，未知 ROM 不硬套厂商 Hook。
+
+### 本轮完成
+
+- 新增 `core/RomProfile.java`：识别 `PIXELOS`、`LINEAGEOS`、`AOSP`、`UNKNOWN`；读取 `ro.pixelos.version`、`ro.lineageos.version`、`Build.HOST/PRODUCT/DISPLAY/MANUFACTURER`，读取失败回退 AOSP。
+- system_server：
+  - 缓存 system context 与 ROM 画像；多窗/freeform/非可缩放应用门禁按画像打开。
+  - 任务权限放行覆盖模块 UID、system/root、已知启动器 UID；PixelProps 绕过仅在 PixelOS 画像下尝试。
+  - 启动器包名合并 Quickstep、Launcher3、`org.lineageos.launcher`、Pixel Launcher 别名。
+- Launcher 最近任务：
+  - `TaskOverlayFactory` 增加 Quickstep / Launcher3 quickstep 两组类名候选。
+  - `RemoteActionShortcut` 增加 Quickstep / Launcher3 popup 两组类名候选；类名缺失只记日志，不插入不可用菜单。
+- 虚拟屏几何：PixelOS 默认 82% 宽 / 56% 高、60dp 贴边阈值；LineageOS 默认 80% 宽 / 54% 高、56dp 贴边阈值；AOSP 回退 PixelOS 几何。
+- LSPosed 作用域补 `org.lineageos.launcher`、`com.android.quickstep`。
+- 新增 `docs/ROM_ADAPTATION.md`，记录适配矩阵、作用域和待真机背书项。
+- 版本升到 `1.0.0-alpha3`，versionCode 25；静态冒烟 53 项通过。
+
+### 仍未闭环
+
+- Pixel Launcher / Trebuchet 实际混淆类名、最近任务菜单工厂是否被定制替换，需要真机 LSPosed 日志。
+- 虚拟屏 trusted 装饰、触摸注入、IME 获焦和候选词落点在两类 ROM 上仍未被真机背书。
+- 权限绕过方法在目标 ROM 上是否存在、是否生效，需要 `NativeWindow/SS` 日志确认。
