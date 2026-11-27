@@ -1,4 +1,4 @@
-# 0.6.1-hyperos4 自动自检说明
+# 0.6.2-scope 自动自检说明
 
 ## 这版为什么改
 
@@ -26,9 +26,23 @@ HyperOS 4 的 freeform 是 MIUI 自研栈：`MiuiFreeFormManagerService`、
 | HyperOS 4 | 用 MIUI 的 `ActivityOptions`：`FREEFORM 5` + `setMiuiConfigFlag(2)` + `MiuiMultiWindowUtils.getFreeformRect` 拉起独立 `ProbeActivity`，由探针测量自己是不是小窗 |
 | PixelOS / LOS 17 | 保留原来的 SystemUI WCT 往返 |
 
+## 推荐应用为什么之前没有
+
+LSPosed 的“推荐应用”不是自动猜的，它读模块 `AndroidManifest.xml` 里的：
+
+```xml
+<meta-data
+    android:name="xposedscope"
+    android:resource="@array/xposed_scope" />
+```
+
+0.6.1 只声明了 `xposedmodule`，没有 `xposedscope`，所以列表只剩“所有应用”，没有“推荐应用”。
+0.6.2 补上了 `res/values/arrays.xml` 的 `xposed_scope`：`android`、`com.android.systemui`、
+`com.android.launcher3`、`com.google.android.apps.nexuslauncher`、`com.miui.home`。
+
 ## 怎么用
 
-1. 安装 `native-window-0.6.1-hyperos4.apk`。
+1. 安装 `native-window-0.6.2-scope.apk`。
 2. LSPosed 启用模块，作用域至少勾：**系统框架（system）**、**SystemUI（com.android.systemui）**；HyperOS 桌面是 `com.miui.home`，要桌面入口时再勾。
 3. 重启 SystemUI / 重启手机。
 4. 打开 App，**不用点任何按钮**。
@@ -61,8 +75,8 @@ ANDROID_HOME=/home/user/tools/android-sdk bash scripts/smoke.sh
 
 ## 版本
 
-- versionCode 8
-- versionName 0.6.1-hyperos4
+- versionCode 9
+- versionName 0.6.2-scope
 - 包名 io.github.wumisc.nativewindow
-- APK：`dist/native-window-0.6.1-hyperos4.apk`
-- sha256：`b6b1f9c260cb9a47dc08e6f12224fa19d28fa3f84d33b44127dd6a1f7567f9a5`
+- APK：`dist/native-window-0.6.2-scope.apk`
+- sha256：`ca059b7bfba8d24b8086be29bff9d1de7131959d8bf6ec0dd662a73f23cecbe7`

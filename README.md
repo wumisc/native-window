@@ -4,6 +4,18 @@
 > 目标设备：**PixelOS 17 / LineageOS 17**（Android 17，API 37）。  
 > 形态：**LSPosed + Root**，AGPL-3.0。
 
+## 0.6.2-scope：恢复 LSPosed 推荐应用
+
+0.6.1 只声明了 `xposedmodule`，没有声明 `xposedscope`，所以 LSPosed 作用域页没有“推荐应用”。
+0.6.2 增加 `res/values/arrays.xml` 的 `xposed_scope`，并挂到：
+
+```xml
+<meta-data android:name="xposedscope" android:resource="@array/xposed_scope" />
+```
+
+推荐作用域：`android`、`com.android.systemui`、`com.android.launcher3`、
+`com.google.android.apps.nexuslauncher`、`com.miui.home`（HyperOS 4 桌面）。
+
 ## 0.6.1-hyperos4：先认出手机是 HyperOS 4
 
 真机日志（Xiaomi M332BF / CP2A.260605.016 / API 37）里，`SelfTestActivity` 一直是
@@ -240,7 +252,7 @@ native-window/
 export ANDROID_HOME=$HOME/Android/Sdk
 export JAVA_HOME=/path/to/jdk-17
 bash scripts/build.sh
-# 输出：dist/native-window-0.6.1-hyperos4.apk
+# 输出：dist/native-window-0.6.2-scope.apk
 ```
 
 ### Android Studio

@@ -7,7 +7,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}}"
 BT="${BUILD_TOOLS:-$SDK/build-tools/37.0.0}"
-APK="${1:-$ROOT/dist/native-window-0.6.1-hyperos4.apk}"
+APK="${1:-$ROOT/dist/native-window-0.6.2-scope.apk}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -23,8 +23,8 @@ ng() { printf 'FAIL  %s\n' "$1"; fail=$((fail+1)); }
 BADGE="$("$BT/aapt2" dump badging "$APK")"
 echo "$BADGE" | grep -q "package: name='io.github.wumisc.nativewindow'" \
   && ok "package id" || ng "package id"
-echo "$BADGE" | grep -q "versionName='0.6.1-hyperos4'" \
-  && ok "versionName 0.6.1-hyperos4" || ng "versionName"
+echo "$BADGE" | grep -q "versionName='0.6.2-scope'" \
+  && ok "versionName 0.6.2-scope" || ng "versionName"
 echo "$BADGE" | grep -q "targetSdkVersion:'37'" \
   && ok "targetSdk 37" || ng "targetSdk"
 
@@ -47,6 +47,8 @@ echo "$MANIFEST" | grep -q '\.OverlayService' \
   && ok "OverlayService declared" || ng "OverlayService missing"
 echo "$MANIFEST" | grep -q 'xposedmodule' \
   && ok "xposedmodule meta" || ng "xposedmodule meta"
+echo "$MANIFEST" | grep -q 'xposedscope' \
+  && ok "xposedscope meta" || ng "xposedscope meta"
 
 unzip -p "$APK" classes.dex > "$TMP/classes.dex"
 "$BT/dexdump" -d "$TMP/classes.dex" > "$TMP/dexdump.txt"
