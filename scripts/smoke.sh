@@ -70,7 +70,13 @@ for cls in \
   io/github/wumisc/nativewindow/hook/HyperOsSystemUiHook \
   io/github/wumisc/nativewindow/log/LogCollector \
   io/github/wumisc/nativewindow/log/LogProvider \
-  io/github/wumisc/nativewindow/Palette
+  io/github/wumisc/nativewindow/Palette \
+  io/github/wumisc/nativewindow/core/TargetWindowForm \
+  io/github/wumisc/nativewindow/core/FanLaunchAction \
+  io/github/wumisc/nativewindow/core/LaunchPolicy \
+  io/github/wumisc/nativewindow/core/CloseDecision \
+  io/github/wumisc/nativewindow/core/ClosePolicy \
+  io/github/wumisc/nativewindow/core/GeometryPolicy
  do
   grep -q "L$cls;" "$TMP/dexdump.txt" && ok "dex: $cls" || ng "dex missing: $cls"
  done
