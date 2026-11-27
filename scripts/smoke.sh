@@ -7,7 +7,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}}"
 BT="${BUILD_TOOLS:-$SDK/build-tools/37.0.0}"
-APK="${1:-$ROOT/dist/native-window-1.0.0-alpha1.apk}"
+APK="${1:-$ROOT/dist/native-window-1.0.0-alpha2.apk}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -23,8 +23,8 @@ ng() { printf 'FAIL  %s\n' "$1"; fail=$((fail+1)); }
 BADGE="$("$BT/aapt2" dump badging "$APK")"
 echo "$BADGE" | grep -q "package: name='io.github.wumisc.nativewindow'" \
   && ok "package id" || ng "package id"
-echo "$BADGE" | grep -q "versionName='1.0.0-alpha1'" \
-  && ok "versionName 1.0.0-alpha1" || ng "versionName"
+echo "$BADGE" | grep -q "versionName='1.0.0-alpha2'" \
+  && ok "versionName 1.0.0-alpha2" || ng "versionName"
 echo "$BADGE" | grep -q "targetSdkVersion:'37'" \
   && ok "targetSdk 37" || ng "targetSdk"
 
@@ -85,6 +85,17 @@ for cls in \
   && ok "old overlay chrome removed" || ng "old overlay chrome still in dex"
 ! grep -q "Lio/github/wumisc/nativewindow/hook/OpenReceiver;" "$TMP/dexdump.txt" \
   && ok "old OpenReceiver removed" || ng "old OpenReceiver still in dex"
+
+grep -q "setDisplayImePolicy" "$ROOT/app/src/main/java/io/github/wumisc/nativewindow/hook/VirtualWindow.java" \
+  && ok "IME local policy wired" || ng "IME policy missing"
+grep -q "registerDisplayListener" "$ROOT/app/src/main/java/io/github/wumisc/nativewindow/hook/VirtualWindow.java" \
+  && ok "display rotation listener wired" || ng "rotation listener missing"
+grep -q "registerTaskStackListener" "$ROOT/app/src/main/java/io/github/wumisc/nativewindow/hook/VirtualWindow.java" \
+  && ok "task orientation listener wired" || ng "task orientation listener missing"
+grep -q "snapToEdge" "$ROOT/app/src/main/java/io/github/wumisc/nativewindow/hook/VirtualWindow.java" \
+  && ok "edge snap wired" || ng "edge snap missing"
+grep -q "bringToTop" "$ROOT/app/src/main/java/io/github/wumisc/nativewindow/hook/VirtualWindowEngine.java" \
+  && ok "multi-window z-order wired" || ng "z-order missing"
 
 [ -f "$ROOT/app/src/main/res/values-night/styles.xml" ] \
   && ok "values-night theme present" || ng "values-night theme missing"

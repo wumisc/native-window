@@ -4,6 +4,7 @@ import android.app.ActivityOptions;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
@@ -11,11 +12,9 @@ import android.graphics.Color;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
-import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
-import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -30,23 +29,37 @@ import android.view.TextureView;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.util.List;
 
 import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
+import io.github.wumisc.nativewindow.anim.SpringAnimator;
+import io.github.wumisc.nativewindow.core.GeometryPolicy;
 
 /**
  * 一块“米窗”式悬浮卡片：虚拟屏承载真实 Activity，TextureView 显示画面，
- * 顶部标题栏拖动、右下角拖动缩放、底栏返回/桌面/全屏/关闭。
+ * 顶部标题栏拖动、右下角拖动缩放、底栏返回/桌面/旋转/全屏/关闭。
  */
 final class VirtualWindow {
     private static final String TAG = "NativeWindow/VW";
+
+    /** trusted | system decorations | rotates with content | secure，对齐 YAMF 默认 1668。 */
+    private static final int VD_FLAGS = (1 << 10) | (1 << 9) | (1 << 7) | (1 << 2);
+
+    private static final int MODE_NORMAL = 0;
+    private static final int MODE_MINI = 1;
+    private static final int MODE_EDGE = 2;
+
+    /** WindowManagerHidden.DISPLAY_IME_POLICY_LOCAL */
+    private static final int IME_POLICY_LOCAL = 0;
 
     private final Context context;
     private final WindowManager windowManager;
@@ -63,10 +76,13 @@ final class VirtualWindow {
     private final TextureView texture;
     private final ImageView icon;
     private final TextView title;
+    private final TextView imeButton;
+    private final TextView edgeHandle;
     private final LinearLayout footer;
     private final WindowManager.LayoutParams params;
 
     private VirtualDisplay virtualDisplay;
+    private Object taskStackListener;
     private int displayId = -1;
     private int taskId;
     private int contentWidth;
@@ -77,18 +93,43 @@ final class VirtualWindow {
     private int screenWidth;
     private int screenHeight;
     private boolean closed;
-    private boolean mini;
+    private boolean imeActive;
+    private int mode = MODE_NORMAL;
+    private int edgeSide = GeometryPolicy.SIDE_NONE;
+
+    private int normalX;
+    private int normalY;
+    private int normalWidth;
+    private int normalHeight;
+
+    private SpringAnimator xAnim;
+    private SpringAnimator yAnim;
+    private SpringAnimator alphaAnim;
 
     private final int dp10;
     private final int dp36;
     private final int dp30;
+    private final int dp24;
     private final int cardColor;
     private final int fgColor;
     private final int subColor;
 
     private long lastHeaderTap;
-    private float headerTapX;
-    private float headerTapY;
+    private float lastTapX;
+    private float lastTapY;
+    private float downRawX;
+    private float downRawY;
+    private int startX;
+    private int startY;
+    private float dragDistance;
+
+    private final DisplayManager.DisplayListener displayListener = new DisplayManager.DisplayListener() {
+        @Override public void onDisplayAdded(int displayId) {}
+        @Override public void onDisplayRemoved(int displayId) {}
+        @Override public void onDisplayChanged(int displayId) {
+            if (displayId == Display.DEFAULT_DISPLAY) refreshScreenMetrics();
+        }
+    };
 
     VirtualWindow(Context context, WindowManager windowManager, DisplayManager displayManager,
                   Object activityTaskManager, ComponentName component, int taskId, int userId) {
@@ -104,13 +145,10 @@ final class VirtualWindow {
         dp10 = Math.round(10 * d);
         dp36 = Math.round(36 * d);
         dp30 = Math.round(30 * d);
+        dp24 = Math.round(24 * d);
         densityDpi = context.getResources().getDisplayMetrics().densityDpi;
 
-        Display main = displayManager.getDisplay(Display.DEFAULT_DISPLAY);
-        android.util.DisplayMetrics metrics = new android.util.DisplayMetrics();
-        main.getRealMetrics(metrics);
-        screenWidth = metrics.widthPixels;
-        screenHeight = metrics.heightPixels;
+        refreshScreenMetrics();
 
         boolean night = (context.getResources().getConfiguration().uiMode
                 & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
@@ -131,8 +169,7 @@ final class VirtualWindow {
         card.setBackground(round(cardColor, 18));
         card.setElevation(dp(12));
         card.setClipChildren(false);
-        root.addView(card, new FrameLayout.LayoutParams(
-                contentWidth, dp36 + contentHeight + dp36));
+        root.addView(card, new FrameLayout.LayoutParams(contentWidth, dp36 + contentHeight + dp36));
 
         header = new LinearLayout(context);
         header.setOrientation(LinearLayout.HORIZONTAL);
@@ -153,6 +190,15 @@ final class VirtualWindow {
         title.setPadding(dp(7), 0, dp(6), 0);
         header.addView(title, new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        imeButton = new TextView(context);
+        imeButton.setText("⌨");
+        imeButton.setTextColor(subColor);
+        imeButton.setTextSize(16);
+        imeButton.setGravity(Gravity.CENTER);
+        imeButton.setContentDescription("输入法");
+        imeButton.setOnClickListener(v -> toggleIme());
+        header.addView(imeButton, new LinearLayout.LayoutParams(dp30, dp30));
 
         TextView close = new TextView(context);
         close.setText("×");
@@ -188,14 +234,28 @@ final class VirtualWindow {
         footer = new LinearLayout(context);
         footer.setOrientation(LinearLayout.HORIZONTAL);
         footer.setGravity(Gravity.CENTER);
-        footer.setPadding(0, 0, 0, 0);
         card.addView(footer, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp36));
 
         addFooterButton("返回", () -> input.key(KeyEvent.KEYCODE_BACK, displayId));
         addFooterButton("桌面", () -> input.key(KeyEvent.KEYCODE_HOME, displayId));
+        addFooterButton("旋转", this::rotate);
         addFooterButton("全屏", this::fullscreen);
         addFooterButton("关闭", this::close);
+
+        edgeHandle = new TextView(context);
+        edgeHandle.setText("‹");
+        edgeHandle.setTextColor(fgColor);
+        edgeHandle.setTextSize(18);
+        edgeHandle.setGravity(Gravity.CENTER);
+        edgeHandle.setBackground(round(cardColor, dp(10)));
+        edgeHandle.setVisibility(View.GONE);
+        edgeHandle.setContentDescription("恢复小窗");
+        edgeHandle.setOnClickListener(v -> restoreFromEdge());
+        FrameLayout.LayoutParams handleLp = new FrameLayout.LayoutParams(
+                dp24, ViewGroup.LayoutParams.MATCH_PARENT);
+        handleLp.gravity = Gravity.START;
+        root.addView(edgeHandle, handleLp);
 
         header.setOnTouchListener(new HeaderTouch());
 
@@ -213,6 +273,9 @@ final class VirtualWindow {
             @Override public void onSurfaceTextureUpdated(SurfaceTexture st) {}
         });
         texture.setOnTouchListener((v, event) -> {
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                VirtualWindowEngine.bringToTop(this);
+            }
             if (displayId > 0) input.motion(event, displayId);
             return true;
         });
@@ -233,28 +296,62 @@ final class VirtualWindow {
 
     int displayId() { return displayId; }
 
+    String packageKey() {
+        return component == null ? null : component.getPackageName();
+    }
+
+    boolean matchesTask(int id) {
+        return id > 0 && taskId == id;
+    }
+
+    void bringToTop() {
+        try {
+            windowManager.removeView(root);
+            windowManager.addView(root, params);
+        } catch (Throwable t) {
+            Log.e(TAG, "bringToTop failed", t);
+        }
+    }
+
+    void activate() {
+        restoreFromEdge();
+        bringToTop();
+    }
+
     void show() {
         if (virtualDisplay == null) {
             String name = "nativewindow-" + SystemClock.uptimeMillis();
             virtualDisplay = displayManager.createVirtualDisplay(
-                    name, contentWidth, contentHeight, densityDpi, null, 1668);
+                    name, contentWidth, contentHeight, densityDpi, null, VD_FLAGS);
             displayId = virtualDisplay.getDisplay().getDisplayId();
+            applyImePolicyLocal();
             XposedBridge.log(TAG + ": virtualDisplay=" + displayId
                     + " size=" + contentWidth + "x" + contentHeight + " dpi=" + densityDpi);
         }
+        displayManager.registerDisplayListener(displayListener, new Handler(Looper.getMainLooper()));
+        registerTaskStackListener();
+        root.setAlpha(0f);
         windowManager.addView(root, params);
+        fadeIn();
         launchTarget();
         refreshTaskInfo(0);
         startWatchdog();
     }
 
+    private void fadeIn() {
+        cancel(alphaAnim);
+        alphaAnim = SpringAnimator.windowOpen(v -> root.setAlpha(v));
+        alphaAnim.start(0f, 1f);
+    }
+
     private void attachSurface(SurfaceTexture st, int w, int h) {
         if (virtualDisplay == null) return;
         try {
-            st.setDefaultBufferSize(w, h);
+            st.setDefaultBufferSize(contentWidth, contentHeight);
             virtualDisplay.setSurface(new Surface(st));
-            virtualDisplay.resize(w, h, densityDpi);
-            XposedBridge.log(TAG + ": surface " + w + "x" + h + " -> display " + displayId);
+            virtualDisplay.resize(contentWidth, contentHeight, densityDpi);
+            XposedBridge.log(TAG + ": surface " + contentWidth + "x" + contentHeight
+                    + " -> display " + displayId);
         } catch (Throwable t) {
             Log.e(TAG, "attachSurface failed", t);
         }
@@ -383,44 +480,162 @@ final class VirtualWindow {
         footer.addView(b, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
     }
 
-    private void moveWindow(int dx, int dy, int startX, int startY) {
-        params.x = clamp(startX + dx, -dp10, screenWidth - params.width + dp10);
-        params.y = clamp(startY + dy, -dp10, screenHeight - params.height + dp10);
+    private void refreshScreenMetrics() {
+        Display main = displayManager == null
+                ? null : displayManager.getDisplay(Display.DEFAULT_DISPLAY);
+        if (main == null) return;
+        android.util.DisplayMetrics metrics = new android.util.DisplayMetrics();
+        main.getRealMetrics(metrics);
+        screenWidth = metrics.widthPixels;
+        screenHeight = metrics.heightPixels;
+        if (params != null) {
+            params.x = GeometryPolicy.safeX(params.x, params.width, screenWidth, dp10);
+            params.y = GeometryPolicy.safeY(params.y, params.height, screenHeight, dp10);
+            updateLayout();
+        }
+    }
+
+    private void registerTaskStackListener() {
         try {
-            windowManager.updateViewLayout(root, params);
-        } catch (Throwable ignored) {}
+            Class<?> listenerInterface = Class.forName("android.app.ITaskStackListener");
+            taskStackListener = Proxy.newProxyInstance(
+                    VirtualWindow.class.getClassLoader(),
+                    new Class<?>[]{listenerInterface},
+                    (proxy, method, args) -> {
+                        if ("onTaskRequestedOrientationChanged".equals(method.getName())
+                                && args != null && args.length == 2
+                                && args[1] instanceof Integer) {
+                            handleRequestedOrientation((Integer) args[1]);
+                        }
+                        return null;
+                    });
+            call("registerTaskStackListener", new Class<?>[]{listenerInterface}, taskStackListener);
+        } catch (Throwable t) {
+            Log.w(TAG, "task stack listener unavailable: " + t);
+        }
+    }
+
+    private void unregisterTaskStackListener() {
+        if (taskStackListener == null) return;
+        try {
+            Class<?> listenerInterface = Class.forName("android.app.ITaskStackListener");
+            call("unregisterTaskStackListener", new Class<?>[]{listenerInterface}, taskStackListener);
+        } catch (Throwable ignored) {
+        }
+        taskStackListener = null;
+    }
+
+    private void handleRequestedOrientation(int requested) {
+        if (closed) return;
+        boolean currentLandscape = contentWidth > contentHeight;
+        boolean wantLandscape = requested == ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                || requested == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE;
+        boolean wantPortrait = requested == ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                || requested == ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT;
+        if (wantLandscape && !currentLandscape) rotate();
+        else if (wantPortrait && currentLandscape) rotate();
+    }
+
+    private void moveWindow(int dx, int dy, int startX, int startY) {
+        params.x = GeometryPolicy.safeX(startX + dx, params.width, screenWidth, dp10);
+        params.y = GeometryPolicy.safeY(startY + dy, params.height, screenHeight, dp10);
+        updateLayout();
     }
 
     private void resizeWindow(int dw, int dh, int startW, int startH) {
-        contentWidth = clamp(startW + dw, dp(260), screenWidth - dp10 * 2);
-        contentHeight = clamp(startH + dh, dp(320), screenHeight - dp36 * 2 - dp10 * 2);
-        card.getLayoutParams().width = contentWidth;
-        card.getLayoutParams().height = dp36 + contentHeight + dp36;
-        contentWrap.getLayoutParams().height = contentHeight;
-        params.width = contentWidth + dp10 * 2;
-        params.height = dp36 + contentHeight + dp36 + dp10 * 2;
-        card.requestLayout();
-        contentWrap.requestLayout();
-        try {
-            windowManager.updateViewLayout(root, params);
-        } catch (Throwable ignored) {}
+        contentWidth = GeometryPolicy.clamp(startW + dw, dp(260), screenWidth - dp10 * 2);
+        contentHeight = GeometryPolicy.clamp(startH + dh, dp(320), screenHeight - dp36 * 2 - dp10 * 2);
+        applySize();
+        resizeVirtualDisplay();
+    }
+
+    private void rotate() {
+        if (closed) return;
+        int swappedWidth = contentHeight;
+        int swappedHeight = contentWidth;
+        contentWidth = GeometryPolicy.clamp(swappedWidth, dp(260), screenWidth - dp10 * 2);
+        contentHeight = GeometryPolicy.clamp(swappedHeight, dp(320), screenHeight - dp36 * 2 - dp10 * 2);
+        applySize();
+        resizeVirtualDisplay();
     }
 
     private void toggleMini() {
-        mini = !mini;
-        int w = mini ? Math.max(dp(220), originalWidth / 2) : originalWidth;
-        int h = mini ? Math.max(dp(300), originalHeight / 2) : originalHeight;
-        contentWidth = w;
-        contentHeight = h;
-        card.getLayoutParams().width = w;
-        card.getLayoutParams().height = dp36 + h + dp36;
-        contentWrap.getLayoutParams().height = h;
-        params.width = w + dp10 * 2;
-        params.height = dp36 + h + dp36 + dp10 * 2;
-        card.requestLayout();
+        if (mode == MODE_EDGE) {
+            restoreFromEdge();
+            return;
+        }
+        boolean mini = mode != MODE_MINI;
+        if (mini) {
+            normalX = params.x;
+            normalY = params.y;
+            normalWidth = contentWidth;
+            normalHeight = contentHeight;
+            contentWidth = Math.max(dp(220), normalWidth / 2);
+            contentHeight = Math.max(dp(300), normalHeight / 2);
+            mode = MODE_MINI;
+        } else {
+            contentWidth = normalWidth;
+            contentHeight = normalHeight;
+            mode = MODE_NORMAL;
+        }
+        applySize();
+        resizeVirtualDisplay();
+    }
+
+    private void snapToEdge(int side) {
+        if (closed || mode == MODE_EDGE) return;
+        normalX = params.x;
+        normalY = params.y;
+        normalWidth = contentWidth;
+        normalHeight = contentHeight;
+        mode = MODE_EDGE;
+        edgeSide = side;
+
+        FrameLayout.LayoutParams handleLp = (FrameLayout.LayoutParams) edgeHandle.getLayoutParams();
+        handleLp.gravity = side == GeometryPolicy.SIDE_LEFT ? Gravity.START : Gravity.END;
+        edgeHandle.setText(side == GeometryPolicy.SIDE_LEFT ? "‹" : "›");
+        edgeHandle.setVisibility(View.VISIBLE);
+
+        int targetX = side == GeometryPolicy.SIDE_LEFT
+                ? -params.width + dp24
+                : screenWidth - dp24;
+        animateX(targetX);
+        animateY(normalY);
+    }
+
+    private void restoreFromEdge() {
+        if (mode != MODE_EDGE || closed) return;
+        mode = MODE_NORMAL;
+        edgeSide = GeometryPolicy.SIDE_NONE;
+        edgeHandle.setVisibility(View.GONE);
+        animateX(normalX);
+        animateY(normalY);
+    }
+
+    private void toggleIme() {
+        imeActive = !imeActive;
+        int flags = params.flags;
+        if (imeActive) {
+            flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+            flags &= ~WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM;
+        } else {
+            flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+            flags |= WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM;
+        }
+        params.flags = flags;
+        updateLayout();
         try {
-            windowManager.updateViewLayout(root, params);
-        } catch (Throwable ignored) {}
+            InputMethodManager imm = (InputMethodManager)
+                    context.getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm == null) return;
+            if (imeActive) {
+                imm.showSoftInput(root, 0);
+            } else {
+                imm.hideSoftInputFromWindow(root.getWindowToken(), 0);
+            }
+        } catch (Throwable t) {
+            Log.e(TAG, "toggleIme failed", t);
+        }
     }
 
     private void fullscreen() {
@@ -444,6 +659,13 @@ final class VirtualWindow {
     private void close(boolean removeTask) {
         if (closed) return;
         closed = true;
+        cancel(xAnim);
+        cancel(yAnim);
+        cancel(alphaAnim);
+        unregisterTaskStackListener();
+        try {
+            displayManager.unregisterDisplayListener(displayListener);
+        } catch (Throwable ignored) {}
         try {
             if (removeTask && taskId > 0) call("removeTask", new Class[]{int.class}, taskId);
         } catch (Throwable ignored) {}
@@ -485,6 +707,98 @@ final class VirtualWindow {
         return m.invoke(activityTaskManager, args);
     }
 
+    private void applySize() {
+        card.getLayoutParams().width = contentWidth;
+        card.getLayoutParams().height = dp36 + contentHeight + dp36;
+        contentWrap.getLayoutParams().height = contentHeight;
+        params.width = contentWidth + dp10 * 2;
+        params.height = dp36 + contentHeight + dp36 + dp10 * 2;
+        card.requestLayout();
+        contentWrap.requestLayout();
+        updateLayout();
+    }
+
+    private void resizeVirtualDisplay() {
+        if (virtualDisplay == null) return;
+        try {
+            virtualDisplay.resize(contentWidth, contentHeight, densityDpi);
+            SurfaceTexture st = texture.getSurfaceTexture();
+            if (st != null) st.setDefaultBufferSize(contentWidth, contentHeight);
+        } catch (Throwable t) {
+            Log.w(TAG, "resize virtual display failed", t);
+        }
+    }
+
+    private void applyImePolicyLocal() {
+        if (displayId < 0) return;
+        try {
+            Method m = findHiddenMethod(windowManager, "setDisplayImePolicy",
+                    int.class, int.class);
+            if (m != null) m.invoke(windowManager, displayId, IME_POLICY_LOCAL);
+        } catch (Throwable t) {
+            Log.w(TAG, "setDisplayImePolicy unavailable: " + t);
+        }
+    }
+
+    private static Method findHiddenMethod(Object target, String name, Class<?>... types) {
+        Class<?> c = target.getClass();
+        while (c != null) {
+            for (Method m : c.getDeclaredMethods()) {
+                if (m.getName().equals(name) && sameTypes(m.getParameterTypes(), types)) {
+                    m.setAccessible(true);
+                    return m;
+                }
+            }
+            c = c.getSuperclass();
+        }
+        for (Class<?> iface : target.getClass().getInterfaces()) {
+            for (Method m : iface.getDeclaredMethods()) {
+                if (m.getName().equals(name) && sameTypes(m.getParameterTypes(), types)) {
+                    m.setAccessible(true);
+                    return m;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static boolean sameTypes(Class<?>[] a, Class<?>[] b) {
+        if (a.length != b.length) return false;
+        for (int i = 0; i < a.length; i++) {
+            if (!a[i].equals(b[i])) return false;
+        }
+        return true;
+    }
+
+    private void updateLayout() {
+        if (closed) return;
+        try {
+            windowManager.updateViewLayout(root, params);
+        } catch (Throwable ignored) {}
+    }
+
+    private void animateX(int target) {
+        cancel(xAnim);
+        xAnim = SpringAnimator.snap(v -> {
+            params.x = Math.round(v);
+            updateLayout();
+        });
+        xAnim.start(params.x, target);
+    }
+
+    private void animateY(int target) {
+        cancel(yAnim);
+        yAnim = SpringAnimator.snap(v -> {
+            params.y = Math.round(v);
+            updateLayout();
+        });
+        yAnim.start(params.y, target);
+    }
+
+    private static void cancel(SpringAnimator animator) {
+        if (animator != null) animator.cancel();
+    }
+
     private static int intField(Object o, String name) {
         try {
             java.lang.reflect.Field f = o.getClass().getField(name);
@@ -505,14 +819,7 @@ final class VirtualWindow {
         return Math.round(v * context.getResources().getDisplayMetrics().density);
     }
 
-    private static int clamp(int v, int min, int max) {
-        return Math.max(min, Math.min(max, v));
-    }
-
     private final class HeaderTouch implements View.OnTouchListener {
-        private float downRawX, downRawY;
-        private int startX, startY;
-
         @Override public boolean onTouch(View v, MotionEvent event) {
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
@@ -520,23 +827,31 @@ final class VirtualWindow {
                     downRawY = event.getRawY();
                     startX = params.x;
                     startY = params.y;
+                    dragDistance = 0;
                     return true;
                 case MotionEvent.ACTION_MOVE:
-                    moveWindow((int) (event.getRawX() - downRawX),
-                            (int) (event.getRawY() - downRawY), startX, startY);
+                    float dx = event.getRawX() - downRawX;
+                    float dy = event.getRawY() - downRawY;
+                    dragDistance = Math.max(dragDistance, (float) Math.hypot(dx, dy));
+                    moveWindow((int) dx, (int) dy, startX, startY);
                     return true;
                 case MotionEvent.ACTION_UP:
                     long now = SystemClock.uptimeMillis();
-                    float dx = event.getRawX() - headerTapX;
-                    float dy = event.getRawY() - headerTapY;
-                    if (now - lastHeaderTap < 320 && Math.abs(dx) < dp(16)
-                            && Math.abs(dy) < dp(16)) {
-                        toggleMini();
-                        lastHeaderTap = 0;
+                    if (dragDistance < dp(16)) {
+                        if (now - lastHeaderTap < 320
+                                && Math.abs(event.getRawX() - lastTapX) < dp(16)
+                                && Math.abs(event.getRawY() - lastTapY) < dp(16)) {
+                            toggleMini();
+                            lastHeaderTap = 0;
+                        } else {
+                            lastHeaderTap = now;
+                            lastTapX = event.getRawX();
+                            lastTapY = event.getRawY();
+                        }
                     } else {
-                        lastHeaderTap = now;
-                        headerTapX = event.getRawX();
-                        headerTapY = event.getRawY();
+                        int side = GeometryPolicy.snapSide(params.x, params.width,
+                                screenWidth, dp(60));
+                        if (side != GeometryPolicy.SIDE_NONE) snapToEdge(side);
                     }
                     return true;
             }

@@ -3,7 +3,7 @@
 > 目标：在 **PixelOS 17 / LineageOS 17（Android 17）** 上，用 **LSPosed + Root** 做一个可长期维护的开源小窗增强层。
 > **2026-11-27 修订**：主线改为“公共核心 + 双后端”，市面方案拆解见 [`docs/MARKET_INTEGRATION.md`](docs/MARKET_INTEGRATION.md)；当前先以虚拟屏后端闭环，原生 freeform 作为第二后端。
 > 不是复刻 Flyme / HyperOS，而是把市面上验证过的交互拆开，做成“可配置、可回退”的自己的产品。
-> 当前基线：`1.0.0-alpha1`（虚拟屏悬浮卡片，单窗待真机验收）。
+> 当前基线：`1.0.0-alpha2`（虚拟屏悬浮卡片；IME/旋转/多窗置顶/贴边迷你已接骨架，待真机验收）。
 
 ## 一、产品定位
 

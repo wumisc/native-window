@@ -16,6 +16,7 @@ import android.view.WindowManager;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
@@ -124,6 +125,13 @@ public final class VirtualWindowEngine {
         }
         new Handler(Looper.getMainLooper()).post(() -> {
             try {
+                VirtualWindow existing = findExisting(component, taskId);
+                if (existing != null) {
+                    bringToTop(existing);
+                    existing.activate();
+                    XposedBridge.log(TAG + ": reuse existing window display=" + existing.displayId());
+                    return;
+                }
                 VirtualWindow window = new VirtualWindow(
                         sWindowContext, sWindowManager, sDisplayManager,
                         sActivityTaskManager, component, taskId, userId);
@@ -137,6 +145,21 @@ public final class VirtualWindowEngine {
                 Log.e(TAG, "create window failed", t);
             }
         });
+    }
+
+    private static VirtualWindow findExisting(ComponentName component, int taskId) {
+        String pkg = component == null ? null : component.getPackageName();
+        for (VirtualWindow w : sWindows) {
+            if (taskId > 0 && w.matchesTask(taskId)) return w;
+            if (pkg != null && Objects.equals(pkg, w.packageKey())) return w;
+        }
+        return null;
+    }
+
+    static void bringToTop(VirtualWindow window) {
+        sWindows.remove(window);
+        sWindows.add(window);
+        window.bringToTop();
     }
 
     static void remove(VirtualWindow window) {

@@ -11,7 +11,7 @@ YAMF（另一个米窗）证明另一条路是可行的：**不碰 WMS freeform*
 - YAMF：`https://github.com/duzhaokun123/YAMF`，GPL-3.0，核心 `AppWindow.kt` / `YAMFManager.kt` / `HookSystem.kt` / `HookLauncher.kt`。
 - Free（Flyme 小窗）：`https://github.com/Hoerire/Free`，GPL-3.0，扇形菜单、迷你窗、贴边状态机作为后续交互参考。
 
-## 当前实现（1.0.0-alpha1）
+## 当前实现（1.0.0-alpha2）
 
 ### 进程与职责
 
@@ -36,10 +36,12 @@ YAMF（另一个米窗）证明另一条路是可行的：**不碰 WMS freeform*
 
 ### 交互
 
-- 顶部标题栏：拖动整窗；双击在原始尺寸/迷你尺寸之间切换；右上角关闭。
-- 内容区：触摸事件按 `displayId` 注入，应用收到的是真实输入。
+- 顶部标题栏：拖动整窗；双击在原始尺寸/迷你尺寸之间切换；右上角关闭；键盘按钮切换输入法焦点。
+- 内容区：触摸事件按 `displayId` 注入，应用收到的是真实输入；按下已有窗口时把该窗口提到最前。
 - 右下角 `◢`：拖动改内容区尺寸，TextureView 尺寸变化后 `virtualDisplay.resize()`，应用跟随重排。
-- 底栏：返回（KEYCODE_BACK）、桌面（KEYCODE_HOME）、全屏（`moveRootTaskToDisplay(taskId, 0)` 后释放虚拟屏、不删任务）、关闭（`removeTask` + 释放虚拟屏）。
+- 底栏：返回（KEYCODE_BACK）、桌面（KEYCODE_HOME）、旋转（交换虚拟屏宽高）、全屏（`moveRootTaskToDisplay(taskId, 0)` 后释放虚拟屏、不删任务）、关闭（`removeTask` + 释放虚拟屏）。
+- 贴边：标题栏拖到左右边缘松手后收成侧边把手；点把手恢复原位置。位置/尺寸切换走弹簧动画。
+- 多窗：同一包名或同一 taskId 再次开窗时复用已有窗口并置顶；引擎保留窗口列表。
 - 任务自己退出：看门狗轮询虚拟屏根任务，为空就收卡片。
 
 ### 安全边界
@@ -48,17 +50,17 @@ YAMF（另一个米窗）证明另一条路是可行的：**不碰 WMS freeform*
 - 不修改系统分区，不注入系统 UI 资源，不依赖 HyperOS 私有类。
 - 单窗失败只影响当前卡片，不阻断系统启动（所有 Hook fail-open）。
 
-## 已知限制（alpha1）
+## 已知限制（alpha2）
 
-1. **IME**：悬浮窗是 `FLAG_NOT_FOCUSABLE`，虚拟屏默认没有本地输入法，文本输入框暂时不会弹键盘。下一步用 `WindowManager.setDisplayImePolicy(displayId, DISPLAY_IME_POLICY_LOCAL)` + 临时清 `FLAG_NOT_FOCUSABLE` 做“键盘”按钮。
-2. **横屏/旋转**：没有接 `watchRotation`，应用请求横屏时画面可能被拉伸。下一步参考 YAMF 的 `RotationWatcher`，交换虚拟屏宽高。
-3. **多窗**：引擎支持多实例，但没有做层叠位置、焦点切换、数量上限。
-4. **贴边/迷你持久化**：双击只做尺寸切换，没有 Flyme 的贴边浮标、熄屏保活。
-5. **桌面入口**：最近任务菜单按 YAMF 的字段和构造函数修了，但还没有在 API 37 真机确认菜单项出现。
+1. **IME 待真机背书**：已设置本地 IME policy，并提供键盘按钮临时移除 `FLAG_NOT_FOCUSABLE` / `FLAG_ALT_FOCUSABLE_IM`；但 system_server overlay 能否拿到焦点、候选词和面板是否落在虚拟屏，仍需日志确认。
+2. **横屏/旋转仍待真机确认**：已监听默认屏旋转并重新夹取窗口位置；通过动态代理注册任务栈回调，识别应用请求的横屏/竖屏并自动交换虚拟屏宽高；传感器自动旋转、反向横屏等组合方向还未完全覆盖。
+3. **多窗层叠仍是基础版**：支持复用、置顶和列表，尚未做数量上限、失焦降级、独立层级通道和多窗手势切换。
+4. **贴边/迷你未持久化**：贴边把手和迷你尺寸只保存在内存，重启或关闭后不恢复；熄屏保活、边缘把手拖动还未做。
+5. **桌面入口**：最近任务菜单按 YAMF 的字段和构造函数修了，但还没有在类原生真机确认菜单项出现。
 
 ## 测试步骤
 
-1. 安装 `native-window-1.0.0-alpha1.apk`。
+1. 安装 `native-window-1.0.0-alpha2.apk`。
 2. LSPosed 作用域至少勾选：系统框架（`android`）、Pixel Launcher / Launcher3；如果用最近任务入口，桌面必须勾选。
 3. 重启系统框架（或重启手机）。
 4. 打开模块 → “选择应用开小窗” → 点“设置”。
