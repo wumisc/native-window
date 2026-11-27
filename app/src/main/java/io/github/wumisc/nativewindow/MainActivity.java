@@ -66,7 +66,7 @@ public class MainActivity extends Activity {
         root.addView(title);
 
         TextView version = new TextView(this);
-        version.setText("0.8.0 APP PICKER  ·  HYPEROS 4  ·  ANDROID 17");
+        version.setText("0.9.0 AOSP FIRST  ·  PIXELOS / LOS 17");
         version.setTextColor(Palette.tertiary(this));
         version.setTextSize(11);
         version.setLetterSpacing(0.12f);
@@ -74,7 +74,7 @@ public class MainActivity extends Activity {
         root.addView(version);
 
         TextView intro = new TextView(this);
-        intro.setText("0.7.2 先把“怎么用”和“现在能做什么”讲清楚。HyperOS 4 的 freeform 链路：system_server 放开 MIUI freeform 门禁，SystemUI 同时尝试 MiuiTopDecoration / MiuiBaseWindowDecoration 原生顶栏。打开 App 会自动跑探针，不需要点按钮；结果页会显示 ActivityOptions 的实际参数。LSPosed 作用域：系统框架、SystemUI、HyperOS 桌面。");
+        intro.setText("0.9.0 回到类原生主线：PixelOS / LineageOS 17 的 AOSP freeform 是主路径；HyperOS 4 只作为兼容性测试，不再作为产品目标。App 列表里的“小窗”走 AOSP ActivityStarter，带标记的启动由 system_server 强制 windowingMode=5。：system_server 放开 MIUI freeform 门禁，SystemUI 同时尝试 MiuiTopDecoration / MiuiBaseWindowDecoration 原生顶栏。打开 App 会自动跑探针，不需要点按钮；结果页会显示 ActivityOptions 的实际参数。LSPosed 作用域：系统框架、SystemUI、HyperOS 桌面。");
         intro.setTextColor(Palette.secondary(this));
         intro.setTextSize(14);
         intro.setLineSpacing(dp(5), 1f);

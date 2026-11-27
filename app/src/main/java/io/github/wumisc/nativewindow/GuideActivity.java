@@ -55,7 +55,7 @@ public class GuideActivity extends Activity {
         root.addView(title);
 
         TextView lead = new TextView(this);
-        lead.setText("先按顺序做完这 4 步，再判断它好不好用。现在这个版本是 HyperOS 4 的小窗链路验证版，不是成品。");
+        lead.setText("先按顺序做完这 4 步。这个版本的目标平台是 PixelOS / LineageOS 17（AOSP 17），HyperOS 4 只用于兼容性测试。");
         lead.setTextColor(Palette.secondary(this));
         lead.setTextSize(14);
         lead.setLineSpacing(dp(5), 1f);
@@ -65,7 +65,7 @@ public class GuideActivity extends Activity {
         step(root, "1", "安装并启用模块",
                 "LSPosed → 模块 → 类原生小窗 → 打开“启用模块”。");
         step(root, "2", "勾选作用域",
-                "系统框架（android）、系统界面（com.android.systemui）、HyperOS 桌面（com.miui.home）。");
+                "系统框架（android）、系统界面（com.android.systemui）。HyperOS 测试机再加 com.miui.home。");
         step(root, "3", "重启手机",
                 "作用域改完必须重启，system_server 才会重新加载模块。只重开 App 没用。");
         step(root, "4", "跑一次自检",
@@ -84,9 +84,9 @@ public class GuideActivity extends Activity {
 
         section(root, "03  为什么现在还不如米窗");
         card(root, "差距是真实存在的",
-                "米窗已经接了 HyperOS 桌面/最近任务入口、动画、贴边和迷你窗；我们还在验证\n"
-                        + "“HyperOS 4 到底认哪套 freeform 启动参数”。链路没通之前，手感不可能比它好。\n"
-                        + "下一步不是继续加皮肤，而是先把“从最近任务一键开小窗”打通。");
+                "米窗是 HyperOS 专用，已经接了桌面/最近任务、动画和贴边；我们的目标是类原生，\n"
+                        + "不应该拿 HyperOS 的完成度当基线。先把 AOSP 17 的 freeform 链路做稳，\n"
+                        + "再做最近任务入口、贴边最小化和自研动画。");
 
         section(root, "04  出问题怎么办");
         card(root, "先看自检结果",

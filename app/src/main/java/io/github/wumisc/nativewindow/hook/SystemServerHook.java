@@ -12,18 +12,13 @@ import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
 /**
- * system_server 门禁。
+ * system_server 门禁：PixelOS 17 / LineageOS 24.0（Android 17）的 freeform 开关。
  *
- * 源码核对（PixelOS 17 / LineageOS 24.0 == Android 17）：
- * - ActivityTaskManagerService#retrieveSettings 会把
- *   mSupportsMultiWindow / mSupportsFreeformWindowManagement / mForceResizableActivities
- *   按 config 重算；只在构造里改会被覆盖，所以必须挂 retrieveSettings 之后。
- * - Task.supportsFreeformInDisplayArea 同时要求：
- *     TaskDisplayArea.isWindowingModeSupported(FREEFORM, mSupportsMultiWindow,
- *         mSupportsFreeformWindowManagement, mSupportsPictureInPicture)
- *     && supportsMultiWindowInDisplayArea(tda)
- * - 非 resizeable 的国产 App 要能进小窗，还需要
- *   mForceResizableActivities / mDevEnableNonResizableMultiWindow / mSupportsNonResizableMultiWindow。
+ * - retrieveSettings 会按 config 重算 mSupportsFreeformWindowManagement 等字段，
+ *   所以必须在它之后 patch，否则开机后被覆盖。
+ * - 非 resizeable App 还要打开 mForceResizableActivities、
+ *   mDevEnableNonResizableMultiWindow、mSupportsNonResizableMultiWindow。
+ * - AOSP 的带标记启动由 AospFreeformHook 负责；HyperOS 的由 HyperOsSystemServerHook 负责。
  */
 public final class SystemServerHook {
     private static final String TAG = "NativeWindow/SS";
@@ -39,6 +34,7 @@ public final class SystemServerHook {
 
     public static void install(XC_LoadPackage.LoadPackageParam lp) {
         HyperOsSystemServerHook.install(lp);
+        AospFreeformHook.install(lp);
         try {
             Class<?> atms = XposedHelpers.findClass(
                     "com.android.server.wm.ActivityTaskManagerService", lp.classLoader);
@@ -47,7 +43,6 @@ public final class SystemServerHook {
                     patch(param.thisObject);
                 }
             });
-            // 关键：retrieveSettings 会覆盖字段，必须挂它之后。
             XposedHelpers.findAndHookMethod(atms, "retrieveSettings",
                     ContentResolver.class, new XC_MethodHook() {
                         @Override protected void afterHookedMethod(MethodHookParam param) {
@@ -90,10 +85,6 @@ public final class SystemServerHook {
         }
     }
 
-    /**
-     * 0.4.1 的开窗在 Launcher 进程完成；这里仍补权限，兼容旧版回退路径。
-     * Launcher 进程本来就有该权限，不依赖这里；这里只对模块 UID 放行。
-     */
     private static void hookPermissionBypass(XC_LoadPackage.LoadPackageParam lp) {
         try {
             Class<?> ams = XposedHelpers.findClass(
@@ -104,9 +95,7 @@ public final class SystemServerHook {
                     if (!(param.args[0] instanceof String)) return;
                     String permission = (String) param.args[0];
                     if (!PERM_START_FROM_RECENTS.equals(permission)
-                            && !PERM_MANAGE_ACTIVITY_TASKS.equals(permission)) {
-                        return;
-                    }
+                            && !PERM_MANAGE_ACTIVITY_TASKS.equals(permission)) return;
                     if (sModuleUid > 0 && Binder.getCallingUid() == sModuleUid) {
                         param.setResult(null);
                     }
@@ -118,11 +107,6 @@ public final class SystemServerHook {
         }
     }
 
-    /**
-     * PixelOS 在 ActivityManagerService / ActivityTaskManagerService 里加了
-     * PixelPropsUtils.shouldBypassTaskPermission(uid)。把模块 UID 也纳入，避免
-     * PixelOS 某些 task 接口在 enforce 前就被它拦掉。
-     */
     private static void hookPixelPropsBypass(XC_LoadPackage.LoadPackageParam lp) {
         try {
             Class<?> cls = XposedHelpers.findClassIfExists(
@@ -138,14 +122,11 @@ public final class SystemServerHook {
                 }
             }
             if (m == null) return;
-            final Method target = m;
-            XposedBridge.hookMethod(target, new XC_MethodHook() {
+            XposedBridge.hookMethod(m, new XC_MethodHook() {
                 @Override protected void beforeHookedMethod(MethodHookParam param) {
                     if (param.args == null || param.args.length < 1) return;
                     int uid = (Integer) param.args[0];
-                    if (sModuleUid > 0 && uid == sModuleUid) {
-                        param.setResult(true);
-                    }
+                    if (sModuleUid > 0 && uid == sModuleUid) param.setResult(true);
                 }
             });
             XposedBridge.log(TAG + ": PixelProps task bypass hooked");

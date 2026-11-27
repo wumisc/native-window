@@ -4,6 +4,15 @@
 > 目标设备：**PixelOS 17 / LineageOS 17**（Android 17，API 37）。  
 > 形态：**LSPosed + Root**，AGPL-3.0。
 
+## 0.9.0-aosp-first：回到类原生主线
+
+产品目标改为 PixelOS / LineageOS 17（AOSP 17），HyperOS 4 只做兼容性测试。
+
+- 新增 `AospFreeformHook`：`ActivityStarter#executeRequest` 捕获带
+  `nativewindow.extra.FREEFORM` 的启动，直接写 `windowingMode=5 + launchBounds`。
+- `FreeformLauncher` 在 AOSP 上用标准 `ActivityOptions`，不再依赖 MIUI 私有 API。
+- 应用选择器保留，HyperOS 的 MIUI options 仅作为可选分支。
+
 ## 0.8.1-activitystarter：用 HyperCeiler 验证过的入口
 
 0.8.0 挂错了类，`ActivityStarterInjector` 在 HyperOS 4 上不是实际切入点。
