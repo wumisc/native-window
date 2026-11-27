@@ -66,7 +66,7 @@ public class MainActivity extends Activity {
         root.addView(title);
 
         TextView version = new TextView(this);
-        version.setText("0.7.0 HYPEROS 4  ·  FREEFORM PROBE  ·  ANDROID 17");
+        version.setText("0.7.2 GUIDE  ·  HYPEROS 4  ·  ANDROID 17");
         version.setTextColor(Palette.tertiary(this));
         version.setTextSize(11);
         version.setLetterSpacing(0.12f);
@@ -74,7 +74,7 @@ public class MainActivity extends Activity {
         root.addView(version);
 
         TextView intro = new TextView(this);
-        intro.setText("0.7.0 先解决 HyperOS 4 的真实 freeform 链路：system_server 放开 MIUI freeform 门禁，SystemUI 同时尝试 MiuiTopDecoration / MiuiBaseWindowDecoration 原生顶栏。打开 App 会自动跑探针，不需要点按钮；结果页会显示 ActivityOptions 的实际参数。LSPosed 作用域：系统框架、SystemUI、HyperOS 桌面。");
+        intro.setText("0.7.2 先把“怎么用”和“现在能做什么”讲清楚。HyperOS 4 的 freeform 链路：system_server 放开 MIUI freeform 门禁，SystemUI 同时尝试 MiuiTopDecoration / MiuiBaseWindowDecoration 原生顶栏。打开 App 会自动跑探针，不需要点按钮；结果页会显示 ActivityOptions 的实际参数。LSPosed 作用域：系统框架、SystemUI、HyperOS 桌面。");
         intro.setTextColor(Palette.secondary(this));
         intro.setTextSize(14);
         intro.setLineSpacing(dp(5), 1f);
@@ -92,6 +92,16 @@ public class MainActivity extends Activity {
             }
         });
         root.addView(skin);
+
+        addButton(root, "使用引导 / 第一次使用", new View.OnClickListener() {
+            @Override public void onClick(View v) { startActivity(new Intent(
+                    MainActivity.this, GuideActivity.class)); }
+        });
+
+        addButton(root, "开始小窗自检", new View.OnClickListener() {
+            @Override public void onClick(View v) { startActivity(new Intent(
+                    MainActivity.this, io.github.wumisc.nativewindow.selftest.SelfTestActivity.class)); }
+        });
 
         addButton(root, "显示小窗预览", new View.OnClickListener() {
             @Override public void onClick(View v) { show("window"); }
@@ -125,16 +135,8 @@ public class MainActivity extends Activity {
 
         setContentView(scroll);
 
-        // 0.6.0-selftest：打开主界面后自动进入自检页，不需要用户点任何按钮。
-        // 自检页和主界面在同一个 task 里，所以它测到的就是真实 task 的 freeform 往返。
-        if (savedInstanceState == null) {
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                try {
-                    startActivity(new Intent(this,
-                            io.github.wumisc.nativewindow.selftest.SelfTestActivity.class));
-                } catch (Throwable ignored) {}
-            }, 280);
-        }
+        // 0.7.2：不再自动跳自检页。第一次打开先看“使用引导”，避免用户
+        // 一进来就被探针页挡住，不知道模块到底该怎么配。
     }
 
     private Button addButton(LinearLayout root, String text, View.OnClickListener listener) {

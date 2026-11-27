@@ -4,6 +4,14 @@
 > 目标设备：**PixelOS 17 / LineageOS 17**（Android 17，API 37）。  
 > 形态：**LSPosed + Root**，AGPL-3.0。
 
+## 0.7.2-guide：第一次使用引导
+
+- 主界面不再一打开就跳自检页，先让用户看到“使用引导”。
+- 引导按顺序讲清楚：启用模块 → 勾选作用域 → 重启 → 跑自检。
+- 明确写出现状：HyperOS 4 还没接“最近任务一键小窗”，当前是链路验证版；
+  胶囊、拖动、缩放可用，边缘吸附/贴边最小化还没做。
+- 引导页内置“开始小窗自检”“收集并分享日志”两个入口。
+
 ## 0.7.1-hyperos4-official-options：用 MIUI 自己的 options
 
 0.7.0 的探针仍然是全屏。参考 HyperCeiler 的 `OpenAppInFreeForm` 后确认，

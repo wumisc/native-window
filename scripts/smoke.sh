@@ -7,7 +7,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}}"
 BT="${BUILD_TOOLS:-$SDK/build-tools/37.0.0}"
-APK="${1:-$ROOT/dist/native-window-0.7.1-hyperos4-official-options.apk}"
+APK="${1:-$ROOT/dist/native-window-0.7.2-guide.apk}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -23,8 +23,8 @@ ng() { printf 'FAIL  %s\n' "$1"; fail=$((fail+1)); }
 BADGE="$("$BT/aapt2" dump badging "$APK")"
 echo "$BADGE" | grep -q "package: name='io.github.wumisc.nativewindow'" \
   && ok "package id" || ng "package id"
-echo "$BADGE" | grep -q "versionName='0.7.1-hyperos4-official-options'" \
-  && ok "versionName 0.7.1-hyperos4-official-options" || ng "versionName"
+echo "$BADGE" | grep -q "versionName='0.7.2-guide'" \
+  && ok "versionName 0.7.2-guide" || ng "versionName"
 echo "$BADGE" | grep -q "targetSdkVersion:'37'" \
   && ok "targetSdk 37" || ng "targetSdk"
 
