@@ -37,6 +37,7 @@ public final class HyperOsSystemServerHook {
             clearBlacklists(lp.classLoader);
             hookFreeformLimit(lp.classLoader);
             hookProbeLaunchOptions(lp.classLoader);
+            hookTaggedStartActivity(lp.classLoader);
             XposedBridge.log(TAG + ": HyperOS freeform gates installed");
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": install failed " + t);
@@ -81,10 +82,9 @@ public final class HyperOsSystemServerHook {
                                 if (!(intentObj instanceof android.content.Intent)) return;
                                 android.content.Intent intent = (android.content.Intent) intentObj;
                                 if (intent.getComponent() == null) return;
-                                if (!"io.github.wumisc.nativewindow".equals(
-                                        intent.getComponent().getPackageName())) return;
-                                if (!intent.getComponent().getClassName()
-                                        .endsWith("selftest.ProbeActivity")) return;
+                                if (!intent.getBooleanExtra(
+                                        "io.github.wumisc.nativewindow.extra.FREEFORM",
+                                        false)) return;
                                 Object res = param.getResult();
                                 android.app.ActivityOptions options =
                                         res instanceof android.app.ActivityOptions
@@ -115,6 +115,54 @@ public final class HyperOsSystemServerHook {
             XposedBridge.log(TAG + ": probe launch options hooked");
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": probe launch hook failed " + t);
+        }
+    }
+
+    /**
+     * Binder 入口兜底：App 调用 startActivity 时 bOptions 是 Bundle，
+     * 这里只处理带 nativewindow FREEFORM 标记的 Intent，避免影响系统正常启动。
+     */
+    private static void hookTaggedStartActivity(ClassLoader cl) {
+        try {
+            Class<?> atms = XposedHelpers.findClassIfExists(
+                    "com.android.server.wm.ActivityTaskManagerService", cl);
+            if (atms == null) {
+                XposedBridge.log(TAG + ": ATMS not found for tagged start");
+                return;
+            }
+            for (String method : new String[]{"startActivity", "startActivityAsUser",
+                    "startActivityAsUserFromRecents"}) {
+                XposedBridge.hookAllMethods(atms, method, new XC_MethodHook() {
+                    @Override protected void beforeHookedMethod(MethodHookParam param) {
+                        try {
+                            if (param.args == null) return;
+                            android.content.Intent intent = null;
+                            android.os.Bundle bundle = null;
+                            for (Object arg : param.args) {
+                                if (arg instanceof android.content.Intent) intent =
+                                        (android.content.Intent) arg;
+                                if (arg instanceof android.os.Bundle) bundle =
+                                        (android.os.Bundle) arg;
+                            }
+                            if (intent == null) return;
+                            if (!intent.getBooleanExtra(
+                                    "io.github.wumisc.nativewindow.extra.FREEFORM",
+                                    false)) return;
+                            if (bundle == null) return;
+                            android.graphics.Rect rect = freeformRect();
+                            bundle.putInt("android.activity.windowingMode", 5);
+                            bundle.putParcelable("android:activity.launchBounds", rect);
+                            XposedBridge.log(TAG + ": tagged ATMS." + method
+                                    + " -> freeform " + rect.flattenToString());
+                        } catch (Throwable t) {
+                            XposedBridge.log(TAG + ": tagged ATMS patch failed " + t);
+                        }
+                    }
+                });
+            }
+            XposedBridge.log(TAG + ": tagged ATMS start hooked");
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": tagged ATMS hook failed " + t);
         }
     }
 

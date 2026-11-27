@@ -4,6 +4,15 @@
 > 目标设备：**PixelOS 17 / LineageOS 17**（Android 17，API 37）。  
 > 形态：**LSPosed + Root**，AGPL-3.0。
 
+## 0.8.0-app-picker：真正从 App 里打开任意小窗
+
+- 主界面新增“选择应用开小窗”，列出所有 Launcher 应用，点一下直接以 freeform 拉起。
+- `FreeformLauncher` 优先用 `MiuiMultiWindowUtils.getActivityOptions(context, pkg, true, false)`，
+  再给 Intent 打 `nativewindow.extra.FREEFORM` 标记。
+- system_server 双兜底：`ActivityStarterInjector` 看到标记改 options；ATMS 的
+  `startActivity*` 入口直接把 Bundle 写成 `windowingMode=5 + launchBounds`。
+- 引导页同步改成“选择应用开小窗”，不再让用户只跑探针。
+
 ## 0.7.2-guide：第一次使用引导
 
 - 主界面不再一打开就跳自检页，先让用户看到“使用引导”。

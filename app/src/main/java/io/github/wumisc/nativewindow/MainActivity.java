@@ -66,7 +66,7 @@ public class MainActivity extends Activity {
         root.addView(title);
 
         TextView version = new TextView(this);
-        version.setText("0.7.2 GUIDE  ·  HYPEROS 4  ·  ANDROID 17");
+        version.setText("0.8.0 APP PICKER  ·  HYPEROS 4  ·  ANDROID 17");
         version.setTextColor(Palette.tertiary(this));
         version.setTextSize(11);
         version.setLetterSpacing(0.12f);
@@ -92,6 +92,11 @@ public class MainActivity extends Activity {
             }
         });
         root.addView(skin);
+
+        addButton(root, "选择应用开小窗", new View.OnClickListener() {
+            @Override public void onClick(View v) { startActivity(new Intent(
+                    MainActivity.this, AppPickerActivity.class)); }
+        });
 
         addButton(root, "使用引导 / 第一次使用", new View.OnClickListener() {
             @Override public void onClick(View v) { startActivity(new Intent(

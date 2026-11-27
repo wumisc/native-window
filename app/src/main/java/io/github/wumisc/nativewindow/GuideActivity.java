@@ -72,9 +72,9 @@ public class GuideActivity extends Activity {
                 "打开 App → 开始小窗自检。自检页会显示 ActivityOptions 的实际参数和任务尺寸。");
 
         section(root, "02  现在怎么用");
-        card(root, "打开小窗",
-                "当前 HyperOS 4 还没有接“最近任务 → 小窗”菜单。先用自检探针验证系统链路：\n"
-                        + "App → 开始小窗自检 → 看探针是否以小于全屏的尺寸出现。\n"
+        card(root, "打开任意应用",
+                "App → 选择应用开小窗 → 点任意应用。它会用 MIUI 的 freeform options 拉起，\n"
+                        + "system_server 还会根据 Intent 标记再强制一次。\n"
                         + "PixelOS / LineageOS 分支可从最近任务菜单的“小窗”进入。");
         card(root, "胶囊按钮",
                 "左上返回，中间标题可拖动，右侧“— / □ / ×”分别是最小化、全屏、关闭。\n"
@@ -94,6 +94,10 @@ public class GuideActivity extends Activity {
                         + "如果仍是全屏，把结果页截图发我。");
         card(root, "再分享日志",
                 "App → 收集并分享日志。普通权限抓不到时它会尝试 su；root=false 也能抓 App 侧日志。");
+
+        Button picker = button("选择应用开小窗");
+        picker.setOnClickListener(v -> startActivity(new Intent(this, AppPickerActivity.class)));
+        root.addView(picker, lp());
 
         Button selftest = button("开始小窗自检");
         selftest.setOnClickListener(v -> startActivity(new Intent(this, SelfTestActivity.class)));
