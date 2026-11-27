@@ -98,6 +98,12 @@ public final class HyperOsSystemServerHook {
                                     XposedHelpers.callMethod(options,
                                             "setMiuiConfigFlag", 2);
                                 } catch (Throwable ignored) {}
+                                try {
+                                    Object injector = XposedHelpers.callMethod(options,
+                                            "getActivityOptionsInjector");
+                                    if (injector != null) XposedHelpers.callMethod(
+                                            injector, "setFreeformScale", 0.7f);
+                                } catch (Throwable ignored) {}
                                 param.setResult(options);
                                 XposedBridge.log(TAG + ": forced probe freeform "
                                         + rect.flattenToString());

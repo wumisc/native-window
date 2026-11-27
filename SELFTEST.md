@@ -1,4 +1,4 @@
-# 0.7.0-hyperos4-freeform 自动自检说明
+# 0.7.1-hyperos4-official-options 自动自检说明
 
 ## 这版为什么改
 
@@ -42,7 +42,7 @@ LSPosed 的“推荐应用”不是自动猜的，它读模块 `AndroidManifest.
 
 ## 怎么用
 
-1. 安装 `native-window-0.7.0-hyperos4-freeform.apk`。
+1. 安装 `native-window-0.7.1-hyperos4-official-options.apk`。
 2. LSPosed 启用模块，作用域至少勾：**系统框架（system）**、**SystemUI（com.android.systemui）**；HyperOS 桌面是 `com.miui.home`，要桌面入口时再勾。
 3. 重启 SystemUI / 重启手机。
 4. 打开 App，**不用点任何按钮**。
@@ -76,7 +76,7 @@ ANDROID_HOME=/home/user/tools/android-sdk bash scripts/smoke.sh
 ## 版本
 
 - versionCode 9
-- versionName 0.7.0-hyperos4-freeform
+- versionName 0.7.1-hyperos4-official-options
 - 包名 io.github.wumisc.nativewindow
-- APK：`dist/native-window-0.7.0-hyperos4-freeform.apk`
+- APK：`dist/native-window-0.7.1-hyperos4-official-options.apk`
 - sha256：`ca059b7bfba8d24b8086be29bff9d1de7131959d8bf6ec0dd662a73f23cecbe7`

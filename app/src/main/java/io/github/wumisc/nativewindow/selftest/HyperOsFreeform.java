@@ -39,9 +39,11 @@ public final class HyperOsFreeform {
     }
 
     private static Bundle buildOptions(Context context) {
-        ActivityOptions options = ActivityOptions.makeBasic();
+        ActivityOptions options = officialOptions(context);
         Rect rect = freeformRect(context);
         StringBuilder steps = new StringBuilder();
+        steps.append(options == null ? "official=null" : "official=getActivityOptions");
+        if (options == null) options = ActivityOptions.makeBasic();
         try {
             // setLaunchWindowingMode 是 hidden API，只能反射；直接编译会找不到符号。
             Object mode = invoke(options, "setLaunchWindowingMode",
@@ -79,6 +81,24 @@ public final class HyperOsFreeform {
         }
         ProbeActivity.writeBuild(context, steps.toString());
         return options.toBundle();
+    }
+
+    /**
+     * HyperOS 真正认的是 MiuiMultiWindowUtils.getActivityOptions(context, pkg, true, false)。
+     * 手搓 setLaunchWindowingMode + setMiuiConfigFlag 在部分 HyperOS 4 版本会被
+     * ActivityStarterInjector 重算回全屏；优先用 MIUI 自己的 options。
+     */
+    private static ActivityOptions officialOptions(Context context) {
+        try {
+            Class<?> utils = Class.forName("android.util.MiuiMultiWindowUtils");
+            Method m = utils.getDeclaredMethod("getActivityOptions",
+                    Context.class, String.class, boolean.class, boolean.class);
+            m.setAccessible(true);
+            Object o = m.invoke(null, context,
+                    context.getPackageName(), true, false);
+            if (o instanceof ActivityOptions) return (ActivityOptions) o;
+        } catch (Throwable ignored) {}
+        return null;
     }
 
     private static Rect freeformRect(Context context) {

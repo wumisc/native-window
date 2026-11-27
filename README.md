@@ -4,6 +4,19 @@
 > 目标设备：**PixelOS 17 / LineageOS 17**（Android 17，API 37）。  
 > 形态：**LSPosed + Root**，AGPL-3.0。
 
+## 0.7.1-hyperos4-official-options：用 MIUI 自己的 options
+
+0.7.0 的探针仍然是全屏。参考 HyperCeiler 的 `OpenAppInFreeForm` 后确认，
+HyperOS 真正认的是：
+
+```java
+MiuiMultiWindowUtils.getActivityOptions(context, packageName, true, false)
+```
+
+而不是 App 手搓 `setLaunchWindowingMode(5)`。0.7.1 优先调用这个 MIUI 静态方法，
+保留手搓作为兜底；同时在 `ActivityStarterInjector` 里给 ProbeActivity 再强制一次
+FREEFORM + bounds + scale=0.7。
+
 ## 0.7.0-hyperos4-freeform：先让 HyperOS 4 真的进小窗
 
 - system_server 已确认加载：`NativeWindow/SS: hooked`、`HyperOS-SS: HyperOS freeform gates installed`
