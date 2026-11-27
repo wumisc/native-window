@@ -31,3 +31,29 @@
 - 继续使用原生 caption，不回退到 App 悬浮窗 chrome。
 - 任何新功能必须有开关；Hook 失败 fail-open。
 - 没有真机结果前，不把静态冒烟写成“功能通过”。
+
+## Cycle 1 · 1.0.0-alpha1 米窗路线（2026-11-27）
+
+**目标**：停止在 freeform + 自绘壳上打补丁，改成 YAMF 的虚拟屏 + 悬浮卡片，让用户第一次看到“真实应用内容在可拖动卡片里”。
+
+### 本轮完成
+
+- 新增 `VirtualWindowEngine`：AMS `systemReady` 后初始化，接收 `OPEN_VIRTUAL_WINDOW`，主线程创建窗口。
+- 新增 `VirtualWindow`：`DisplayManager` 创建 trusted 虚拟屏，`TextureView` 镜像，标题栏拖动，右下角缩放，底栏返回/桌面/全屏/关闭，任务消失看门狗。
+- 新增 `VirtualWindowInput`：触摸/按键按 `displayId` 注入。
+- 新增 `VirtualWindowClient`：App 侧广播入口。
+- `AppPickerActivity` 改走虚拟屏；移除主界面的“显示小窗预览 / 侧边栏 / 底角扇形 / 停止预览”，避免再把 DemoOverlay 当产品。
+- `LauncherHook` 按 YAMF 修：`taskView.getTask().key.id` 取 taskId，`shortcuts[0].mItemInfo` 取 ItemInfo，`RemoteActionShortcut` 支持 3/4 参数构造，PendingIntent 直接发给 `android`。
+- 文档：`docs/VIRTUAL_WINDOW.md`。
+
+### 未验证 / 风险
+
+- 没有 API 37 + LSPosed 环境，未做真机冒烟；以下都是静态实现：广播到 `android` 是否可达、system_server 能否添加 `TYPE_APPLICATION_OVERLAY`、trusted 虚拟屏是否被 PixelOS 放行、输入注入是否被 InputDispatcher 接受。
+- 未做 IME、旋转、多窗层叠、贴边、迷你动画。
+- 0.9.x 的 freeform 代码保留但不再是 AppPicker 主路径；SystemUI overlay 仍可能被自检/旧入口触发。
+
+### 下一轮入口
+
+1. 拿到 alpha1 的 LSPosed 日志：`NativeWindow/VWE: ready`、`NativeWindow/VW: virtualDisplay=…`、`surface … -> display …`。
+2. 若广播未到：改 binder/ContentProvider 桥；若 overlay 被拒：换 `mUiContext` 或改 SystemUI 进程承载 overlay。
+3. 通过后补 IME（display IME policy local + 临时 focusable）、旋转（watchRotation）、多窗层叠。

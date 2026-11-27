@@ -1,8 +1,10 @@
 package io.github.wumisc.nativewindow.selftest;
 
 import android.app.Activity;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.graphics.Color;
@@ -49,6 +51,8 @@ public class SelfTestActivity extends Activity {
     private static final String EXTRA_BOUNDS = "bounds";
     private static final String EXTRA_MODE = "mode";
     private static final String EXTRA_SELF_TEST = "self_test";
+    private static final String ACTION_ACK =
+            "io.github.wumisc.nativewindow.action.SELF_TEST_ACK";
     private static final int MODE_FREEFORM = 5;
     private static final int MODE_FULLSCREEN = 1;
 
@@ -66,6 +70,8 @@ public class SelfTestActivity extends Activity {
     private boolean hyperProbeOk;
     private String hyperProbeDetail = "";
     private boolean finished;
+    private String ackText = "";
+    private BroadcastReceiver ackReceiver;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -90,6 +96,7 @@ public class SelfTestActivity extends Activity {
         add("屏幕", true, screen.width() + " × " + screen.height());
         hyper = HyperOs.isHyperOs();
         add("ROM", true, hyper ? HyperOs.describe() : Build.DISPLAY + " · AOSP WMShell");
+        registerAckReceiver();
 
         if (hyper) {
             status.setText("HyperOS 4：正在用 MIUI freeform options 拉起探针…");
@@ -99,6 +106,35 @@ public class SelfTestActivity extends Activity {
             main.postDelayed(this::requestFreeform, 700);
             main.postDelayed(this::evaluate, 4800);
         }
+    }
+
+    private void registerAckReceiver() {
+        ackReceiver = new BroadcastReceiver() {
+            @Override public void onReceive(Context context, Intent intent) {
+                if (intent == null) return;
+                String stage = intent.getStringExtra("stage");
+                boolean ok = intent.getBooleanExtra("ok", false);
+                String detail = intent.getStringExtra("detail");
+                ackText = stage + " · " + (ok ? "ok" : "fail") + " · " + detail;
+                status.setText("SystemUI 回执：" + ackText);
+                add("SystemUI 回执", ok, ackText);
+            }
+        };
+        IntentFilter filter = new IntentFilter(ACTION_ACK);
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(ackReceiver, filter, Context.RECEIVER_EXPORTED);
+        } else {
+            registerReceiver(ackReceiver, filter);
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (ackReceiver != null) {
+            try { unregisterReceiver(ackReceiver); } catch (Throwable ignored) {}
+            ackReceiver = null;
+        }
+        super.onDestroy();
     }
 
     private void applyBars() {

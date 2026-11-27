@@ -56,6 +56,7 @@ public final class SystemServerHook {
             });
             hookPermissionBypass(lp);
             hookPixelPropsBypass(lp);
+            hookVirtualWindow(lp);
             XposedBridge.log(TAG + ": hooked");
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": install failed " + t);
@@ -132,6 +133,21 @@ public final class SystemServerHook {
             XposedBridge.log(TAG + ": PixelProps task bypass hooked");
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": PixelProps bypass failed " + t);
+        }
+    }
+
+    private static void hookVirtualWindow(XC_LoadPackage.LoadPackageParam lp) {
+        try {
+            Class<?> ams = XposedHelpers.findClass(
+                    "com.android.server.am.ActivityManagerService", lp.classLoader);
+            XposedBridge.hookAllMethods(ams, "systemReady", new XC_MethodHook() {
+                @Override protected void afterHookedMethod(MethodHookParam param) {
+                    VirtualWindowEngine.init(param.thisObject);
+                }
+            });
+            XposedBridge.log(TAG + ": VirtualWindowEngine hook installed");
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": VirtualWindowEngine hook failed " + t);
         }
     }
 

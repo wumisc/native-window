@@ -66,7 +66,7 @@ public class MainActivity extends Activity {
         root.addView(title);
 
         TextView version = new TextView(this);
-        version.setText("0.9.0 AOSP FIRST  ·  PIXELOS / LOS 17");
+        version.setText("1.0.0 ALPHA  ·  VIRTUAL DISPLAY  ·  AOSP 17");
         version.setTextColor(Palette.tertiary(this));
         version.setTextSize(11);
         version.setLetterSpacing(0.12f);
@@ -74,24 +74,12 @@ public class MainActivity extends Activity {
         root.addView(version);
 
         TextView intro = new TextView(this);
-        intro.setText("0.9.0 回到类原生主线：PixelOS / LineageOS 17 的 AOSP freeform 是主路径；HyperOS 4 只作为兼容性测试，不再作为产品目标。App 列表里的“小窗”走 AOSP ActivityStarter，带标记的启动由 system_server 强制 windowingMode=5。：system_server 放开 MIUI freeform 门禁，SystemUI 同时尝试 MiuiTopDecoration / MiuiBaseWindowDecoration 原生顶栏。打开 App 会自动跑探针，不需要点按钮；结果页会显示 ActivityOptions 的实际参数。LSPosed 作用域：系统框架、SystemUI、HyperOS 桌面。");
+        intro.setText("真实小窗路线：system_server 创建独立虚拟屏，把目标应用启动到这块屏，再用 TextureView 镜像到可拖动、可缩放、可全屏的悬浮卡片里。不依赖 ROM 的 freeform 标题栏，也不再把“预览壳”当成小窗。");
         intro.setTextColor(Palette.secondary(this));
         intro.setTextSize(14);
         intro.setLineSpacing(dp(5), 1f);
         root.addView(intro, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        Switch skin = new Switch(this);
-        skin.setText("Flyme 皮肤（大圆角，颜色跟随系统深色）");
-        skin.setTextColor(Palette.fg(this));
-        skin.setTextSize(14);
-        skin.setPadding(0, dp(24), 0, dp(8));
-        skin.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
-            @Override public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
-                DemoOverlay.skin = isChecked ? DemoOverlay.SKIN_FLYME : DemoOverlay.SKIN_HYPER;
-            }
-        });
-        root.addView(skin);
 
         addButton(root, "选择应用开小窗", new View.OnClickListener() {
             @Override public void onClick(View v) { startActivity(new Intent(
@@ -108,30 +96,22 @@ public class MainActivity extends Activity {
                     MainActivity.this, io.github.wumisc.nativewindow.selftest.SelfTestActivity.class)); }
         });
 
-        addButton(root, "显示小窗预览", new View.OnClickListener() {
-            @Override public void onClick(View v) { show("window"); }
-        });
-        addButton(root, "显示侧边栏", new View.OnClickListener() {
-            @Override public void onClick(View v) { show("sidebar"); }
-        });
-        addButton(root, "显示底角扇形", new View.OnClickListener() {
-            @Override public void onClick(View v) { show("radial"); }
-        });
-
-        Button stop = addButton(root, "停止预览", new View.OnClickListener() {
+        addButton(root, "关闭所有小窗", new View.OnClickListener() {
             @Override public void onClick(View v) {
-                startService(new Intent(MainActivity.this, OverlayService.class)
-                        .setAction(OverlayService.ACTION_STOP));
+                Intent close = new Intent(
+                        io.github.wumisc.nativewindow.smallwindow.VirtualWindowClient.ACTION_CLOSE_ALL);
+                close.setPackage("android");
+                sendBroadcast(close);
+                Toast.makeText(MainActivity.this, "已发送关闭请求", Toast.LENGTH_SHORT).show();
             }
         });
-        stop.setTextColor(Palette.danger(this));
 
         addButton(root, "收集并分享日志", new View.OnClickListener() {
             @Override public void onClick(View v) { LogCollector.collectAndShare(MainActivity.this); }
         });
 
         TextView hint = new TextView(this);
-        hint.setText("提示：首次使用需授予“显示在其他应用上层”。预览会覆盖桌面，点空白处或“停止预览”退出。真实小窗的胶囊/底条只在 freeform 任务上出现。“收集并分享日志”会抓 logcat + dumpsys，没权限时自动尝试 su。");
+        hint.setText("提示：LSPosed 作用域需要勾选“系统框架”，并重启系统框架。小窗画面是真实应用，输入会按虚拟屏 displayId 注入。若卡片没出现，先看 LSPosed 日志里的 NativeWindow/VWE。");
         hint.setTextColor(Palette.tertiary(this));
         hint.setTextSize(12);
         hint.setLineSpacing(dp(4), 1f);

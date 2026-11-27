@@ -36,6 +36,8 @@ public final class SystemUiHook {
     private static final String TAG = "NativeWindow/SUI";
     private static final String ACTION_FORCE_SMALL =
             "io.github.wumisc.nativewindow.action.FORCE_SMALL_WINDOW";
+    private static final String ACTION_ATTACH_CHROME =
+            "io.github.wumisc.nativewindow.action.ATTACH_CHROME";
     private static final String ACTION_SELF_TEST_ACK =
             "io.github.wumisc.nativewindow.action.SELF_TEST_ACK";
     private static final String EXTRA_TASK_ID = "task_id";
@@ -63,19 +65,35 @@ public final class SystemUiHook {
     }
 
     private static void hookSystemUiApplication(XC_LoadPackage.LoadPackageParam lp) {
-        try {
-            Class<?> cls = XposedHelpers.findClassIfExists(
-                    "com.android.systemui.application.impl.SystemUIApplicationImpl",
-                    lp.classLoader);
-            if (cls == null) return;
-            XposedHelpers.findAndHookMethod(cls, "onCreate", new XC_MethodHook() {
-                @Override protected void afterHookedMethod(MethodHookParam param) {
-                    sContext = (Context) param.thisObject;
-                    registerRequestReceiver(sContext);
-                }
-            });
-        } catch (Throwable t) {
-            XposedBridge.log(TAG + ": hook SystemUI app failed " + t);
+        // AOSP 15/17 的 SystemUI Application 类名在版本之间变过：
+        // - AOSP 15：com.android.systemui.SystemUIApplication
+        // - 部分 AOSP 17 构建：com.android.systemui.application.impl.SystemUIApplicationImpl
+        // 两个都挂，谁存在谁生效；不能只猜一个，否则 receiver 根本不注册。
+        String[] candidates = {
+                "com.android.systemui.SystemUIApplication",
+                "com.android.systemui.application.impl.SystemUIApplicationImpl"
+        };
+        int hooked = 0;
+        for (String name : candidates) {
+            try {
+                Class<?> cls = XposedHelpers.findClassIfExists(name, lp.classLoader);
+                if (cls == null) continue;
+                XposedHelpers.findAndHookMethod(cls, "onCreate", new XC_MethodHook() {
+                    @Override protected void afterHookedMethod(MethodHookParam param) {
+                        Context context = (Context) param.thisObject;
+                        sContext = context;
+                        registerRequestReceiver(context);
+                    }
+                });
+                hooked++;
+                XposedBridge.log(TAG + ": application hooked " + name);
+            } catch (Throwable t) {
+                XposedBridge.log(TAG + ": hook " + name + " failed " + t);
+            }
+        }
+        if (hooked == 0) {
+            XposedBridge.log(TAG + ": no SystemUI application class found; "
+                    + "fallback to ShellTaskOrganizer context");
         }
     }
 
@@ -87,12 +105,25 @@ public final class SystemUiHook {
             XposedBridge.hookAllConstructors(cls, new XC_MethodHook() {
                 @Override protected void afterHookedMethod(MethodHookParam param) {
                     sOrganizer = param.thisObject;
+                    // 兜底：有些 SystemUI 版本 Application#onCreate 找不到，但
+                    // ShellTaskOrganizer 构造参数一定带 Context，用这个注册 receiver。
+                    if (sContext == null && param.args != null) {
+                        for (Object arg : param.args) {
+                            if (arg instanceof Context) {
+                                sContext = (Context) arg;
+                                registerRequestReceiver(sContext);
+                                break;
+                            }
+                        }
+                    }
                 }
             });
             XposedBridge.hookAllMethods(cls, "onTaskVanished", new XC_MethodHook() {
                 @Override protected void afterHookedMethod(MethodHookParam param) {
                     if (param.args.length >= 1) {
-                        sNormalBounds.remove(intField(param.args[0], "taskId", -1));
+                        int vanished = intField(param.args[0], "taskId", -1);
+                        sNormalBounds.remove(vanished);
+                        NativeChromeOverlay.hideTask(vanished);
                     }
                 }
             });
@@ -164,17 +195,28 @@ public final class SystemUiHook {
         if (sRequestReceiverRegistered || context == null) return;
         try {
             IntentFilter filter = new IntentFilter(ACTION_FORCE_SMALL);
+            filter.addAction(ACTION_ATTACH_CHROME);
             context.registerReceiver(new BroadcastReceiver() {
                 @Override public void onReceive(Context ctx, Intent intent) {
-                    if (intent == null || !ACTION_FORCE_SMALL.equals(intent.getAction())) return;
+                    if (intent == null) return;
+                    if (ACTION_ATTACH_CHROME.equals(intent.getAction())) {
+                        onAttachChrome(ctx, intent, getSentFromUid());
+                        return;
+                    }
+                    if (!ACTION_FORCE_SMALL.equals(intent.getAction())) return;
                     int sender = getSentFromUid();
-                    boolean launcher = isLauncherUid(ctx, sender);
-                    // 自检版允许模块 App 把自己的 task 交给 SystemUI 做一次 freeform 往返；
-                    // 必须显式带 self_test=true，避免普通 App 借这个口改任务。
-                    boolean selfTest = intent.getBooleanExtra(EXTRA_SELF_TEST, false)
-                            && isModuleUid(ctx, sender);
-                    if (!launcher && !selfTest) return;
                     int taskId = intent.getIntExtra(EXTRA_TASK_ID, -1);
+                    boolean launcher = isLauncherUid(ctx, sender);
+                    // Android 15 的 BroadcastReceiver#getSentFromUid() 对普通 App 广播返回 -1，
+                    // 不能只看 UID。这里用“task 的 top activity 是不是模块自己”兜底：
+                    // 即使 sender=-1，也只能改模块自己的 task，不能改别的 App。
+                    boolean moduleTask = isModuleTask(taskId);
+                    boolean selfTest = intent.getBooleanExtra(EXTRA_SELF_TEST, false)
+                            && (isModuleUid(ctx, sender) || moduleTask);
+                    XposedBridge.log(TAG + ": force-small received task=" + taskId
+                            + " sender=" + sender + " launcher=" + launcher
+                            + " moduleTask=" + moduleTask + " selfTest=" + selfTest);
+                    if (!launcher && !selfTest) return;
                     if (taskId <= 0) return;
                     int mode = intent.getIntExtra(EXTRA_MODE,
                             SmallWindowBridge.WINDOWING_MODE_FREEFORM);
@@ -195,8 +237,84 @@ public final class SystemUiHook {
         }
     }
 
-    private static boolean isLauncherUid(Context context, int uid) {
-        PackageManager pm = context.getPackageManager();
+    private static void onAttachChrome(Context ctx, Intent intent, int sender) {
+        boolean module = isModuleUid(ctx, sender);
+        boolean launcher = isLauncherUid(ctx, sender);
+        XposedBridge.log(TAG + ": attach chrome sender=" + sender
+                + " module=" + module + " launcher=" + launcher);
+        if (!module && !launcher && sender != android.os.Process.SYSTEM_UID) return;
+        String target = intent.getStringExtra("target_pkg");
+        Rect bounds = intent.getParcelableExtra(EXTRA_BOUNDS);
+        resolveChrome(target, bounds, 0);
+    }
+
+    /** 启动和 top task 切换有几帧延迟，最多重试 4 次，只认目标包名的 task。 */
+    private static void resolveChrome(String target, Rect bounds, int attempt) {
+        int taskId = topTaskId();
+        Object info = taskId > 0 ? getInfo(taskId) : null;
+        String top = topPackage(info);
+        if (info == null || (target != null && !target.equals(top))) {
+            if (attempt < 3) {
+                MAIN.postDelayed(() -> resolveChrome(target, bounds, attempt + 1), 350);
+            } else {
+                XposedBridge.log(TAG + ": attach chrome target not found target="
+                        + target + " top=" + top + " task=" + taskId);
+            }
+            return;
+        }
+        Rect b = bounds != null ? bounds : boundsOf(info);
+        if (b == null) return;
+        // 目标 App 可能已经有一个全屏 task，startActivity 只会把它移到前台，
+        // ActivityOptions 里的 freeform 不会重新套用；必须在这里对真实 task 再下一次 WCT。
+        forceWindowWithRetry(taskId, SmallWindowBridge.WINDOWING_MODE_FREEFORM, b, 0, false);
+        XposedBridge.log(TAG + ": attach chrome task=" + taskId + " pkg=" + top
+                + " bounds=" + b);
+    }
+
+    private static int topTaskId() {
+        try {
+            Class<?> atmCls = Class.forName("android.app.ActivityTaskManager");
+            Object atm = atmCls.getMethod("getService").invoke(null);
+            for (java.lang.reflect.Method m : atmCls.getMethods()) {
+                if (!"getTasks".equals(m.getName())) continue;
+                Object result;
+                if (m.getParameterTypes().length == 2) {
+                    result = m.invoke(atm, 1, false);
+                } else if (m.getParameterTypes().length == 3) {
+                    result = m.invoke(atm, 1, false, false);
+                } else if (m.getParameterTypes().length == 1) {
+                    result = m.invoke(atm, 1);
+                } else {
+                    continue;
+                }
+                if (result instanceof java.util.List && !((java.util.List) result).isEmpty()) {
+                    Object task = ((java.util.List) result).get(0);
+                    return intField(task, "taskId", -1);
+                }
+            }
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": topTaskId failed " + t);
+        }
+        return -1;
+    }
+
+    private static String topPackage(Object info) {
+        if (info == null) return null;
+        try {
+            Object top = XposedHelpers.getObjectField(info, "topActivity");
+            if (top instanceof android.content.ComponentName) {
+                return ((android.content.ComponentName) top).getPackageName();
+            }
+        } catch (Throwable ignored) {}
+        try {
+            Object topInfo = XposedHelpers.getObjectField(info, "topActivityInfo");
+            Object pkg = XposedHelpers.getObjectField(topInfo, "packageName");
+            return pkg != null ? String.valueOf(pkg) : null;
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    private static boolean isLauncherUid(Context context, int uid) {        PackageManager pm = context.getPackageManager();
         try {
             if (uid == pm.getPackageUid("com.android.launcher3", 0)) return true;
         } catch (Throwable ignored) {}
@@ -207,6 +325,7 @@ public final class SystemUiHook {
     }
 
     private static boolean isModuleUid(Context context, int uid) {
+        if (uid < 0) return false;
         int cached = sModuleUid;
         if (cached <= 0) {
             try {
@@ -219,11 +338,35 @@ public final class SystemUiHook {
         return uid == cached;
     }
 
+    /** 只允许改 top activity 属于模块自己的 task；用于 self_test 兜底。 */
+    private static boolean isModuleTask(int taskId) {
+        if (taskId <= 0) return false;
+        Object info = getInfo(taskId);
+        if (info == null) return false;
+        try {
+            Object top = XposedHelpers.getObjectField(info, "topActivity");
+            if (top instanceof android.content.ComponentName) {
+                return MODULE_PKG.equals(((android.content.ComponentName) top).getPackageName());
+            }
+        } catch (Throwable ignored) {}
+        try {
+            Object topInfo = XposedHelpers.getObjectField(info, "topActivityInfo");
+            Object pkg = XposedHelpers.getObjectField(topInfo, "packageName");
+            return MODULE_PKG.equals(pkg);
+        } catch (Throwable ignored) {}
+        return false;
+    }
+
     private static void forceWindowWithRetry(int taskId, int mode, Rect bounds,
             int attempt, boolean selfTest) {
         Object info = getInfo(taskId);
         if (info != null) {
             if (applyWindowMode(taskId, mode, bounds)) {
+                if (mode == SmallWindowBridge.WINDOWING_MODE_FREEFORM) {
+                    NativeChromeOverlay.showForTask(taskId, boundsOf(info));
+                } else {
+                    NativeChromeOverlay.hideTask(taskId);
+                }
                 if (selfTest) {
                     sendAck("applied", taskId, mode, true,
                             "WCT setWindowingMode(" + mode + ")"
@@ -284,15 +427,18 @@ public final class SystemUiHook {
         mini.offset(Math.max(0, current.left - (ctx != null ? dp(ctx, 24) : 72)),
                 Math.max(0, current.top - (ctx != null ? dp(ctx, 24) : 72)));
         applyBounds(taskId, mini);
+        NativeChromeOverlay.sync(taskId, mini);
     }
 
     static void fullscreenTask(int taskId) {
+        NativeChromeOverlay.hideTask(taskId);
         Context ctx = sContext;
         Rect screen = ctx != null ? screenBounds(ctx) : null;
         applyWindowMode(taskId, SmallWindowBridge.WINDOWING_MODE_FULLSCREEN, screen);
     }
 
     static void closeTask(int taskId) {
+        NativeChromeOverlay.hideTask(taskId);
         try {
             Class<?> cls = Class.forName("android.app.ActivityTaskManager");
             Object atm = cls.getMethod("getService").invoke(null);
@@ -300,6 +446,23 @@ public final class SystemUiHook {
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": closeTask failed " + t);
         }
+    }
+
+    static Context context() {
+        return sContext;
+    }
+
+    static Object info(int taskId) {
+        return getInfo(taskId);
+    }
+
+    static Rect taskBounds(int taskId) {
+        return boundsOf(getInfo(taskId));
+    }
+
+    static Rect screen() {
+        Context ctx = sContext;
+        return ctx != null ? screenBounds(ctx) : null;
     }
 
     static boolean applyBounds(int taskId, Rect bounds) {
@@ -314,6 +477,7 @@ public final class SystemUiHook {
                     Class.forName("android.window.WindowContainerToken"), Rect.class);
             setBounds.invoke(txn, token, bounds);
             XposedHelpers.callMethod(org, "applyTransaction", txn);
+            NativeChromeOverlay.sync(taskId, bounds);
             return true;
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": applyBounds failed " + t);
@@ -338,6 +502,9 @@ public final class SystemUiHook {
                 setBounds.invoke(txn, token, bounds);
             }
             XposedHelpers.callMethod(org, "applyTransaction", txn);
+            if (mode == SmallWindowBridge.WINDOWING_MODE_FREEFORM) {
+                NativeChromeOverlay.sync(taskId, bounds);
+            }
             return true;
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": applyWindowMode failed " + t);

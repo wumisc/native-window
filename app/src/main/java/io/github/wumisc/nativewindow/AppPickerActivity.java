@@ -24,7 +24,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-import io.github.wumisc.nativewindow.smallwindow.FreeformLauncher;
+import io.github.wumisc.nativewindow.smallwindow.VirtualWindowClient;
 
 /** 应用选择器：点任意应用，以 freeform 小窗打开。 */
 public class AppPickerActivity extends Activity {
@@ -55,7 +55,7 @@ public class AppPickerActivity extends Activity {
         root.addView(title);
 
         TextView sub = new TextView(this);
-        sub.setText("点击任意应用，直接以自由窗口打开。第一次没反应就再点一次。");
+        sub.setText("点击任意应用，直接在悬浮卡片里打开。可拖动、可缩放、可全屏。");
         sub.setTextColor(Palette.secondary(this));
         sub.setTextSize(13);
         sub.setPadding(0, dp(6), 0, dp(14));
@@ -174,9 +174,13 @@ public class AppPickerActivity extends Activity {
         row.addView(action);
 
         row.setOnClickListener(v -> {
-            boolean ok = FreeformLauncher.open(this, e.pkg);
+            boolean ok = VirtualWindowClient.open(this, e.pkg);
             Toast.makeText(this, ok ? "正在打开 " + e.label : "打开失败：" + e.pkg,
                     Toast.LENGTH_SHORT).show();
+            if (ok) {
+                // 小窗由 system_server 创建，选择页立刻让位，避免盖住卡片。
+                v.postDelayed(this::finish, 250);
+            }
         });
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -188,9 +192,11 @@ public class AppPickerActivity extends Activity {
     private static final class AppEntry {
         final String pkg;
         final String label;
+        final ResolveInfo info;
         AppEntry(String pkg, String label, ResolveInfo info) {
             this.pkg = pkg;
             this.label = label;
+            this.info = info;
         }
     }
 

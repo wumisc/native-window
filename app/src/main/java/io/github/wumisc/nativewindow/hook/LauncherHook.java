@@ -3,6 +3,7 @@ package io.github.wumisc.nativewindow.hook;
 import android.app.PendingIntent;
 import android.app.RemoteAction;
 import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -18,6 +19,8 @@ import android.widget.Toast;
 import java.lang.reflect.Constructor;
 import java.util.ArrayList;
 import java.util.List;
+
+import io.github.wumisc.nativewindow.smallwindow.VirtualWindowClient;
 
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
@@ -107,12 +110,13 @@ public final class LauncherHook {
                 if (param.args.length < 1 || !(param.args[0] instanceof View)) return;
                 try {
                     List shortcuts = (List) param.getResult();
+                    if (shortcuts.isEmpty()) return;
                     if (containsSmallWindow(shortcuts)) return;
                     View taskView = (View) param.args[0];
                     // TaskOverlayFactory 可能在没有 Launcher.onCreate 的情况下被拉起（进程被回收后
                     // 直接从最近任务进入）。接收器必须在这里也保证注册，否则菜单点了没反应。
                     ensureReceiver(taskView.getContext());
-                    Object shortcut = buildShortcut(taskView);
+                    Object shortcut = buildShortcut(taskView, shortcuts);
                     if (shortcut == null) return;
                     try {
                         shortcuts.add(shortcut);
@@ -145,42 +149,55 @@ public final class LauncherHook {
         return false;
     }
 
-    private static Object buildShortcut(View taskView) {
+    private static Object buildShortcut(View taskView, List shortcuts) {
         Context context = taskView.getContext();
-        int taskId = readTaskId(taskView);
-        if (taskId <= 0) return null;
-        Object itemInfo = readItemInfo(taskView);
-        if (itemInfo == null) return null;
+        try {
+            Object task = XposedHelpers.callMethod(taskView, "getTask");
+            Object key = XposedHelpers.getObjectField(task, "key");
+            int taskId = XposedHelpers.getIntField(key, "id");
+            int userId = XposedHelpers.getIntField(key, "userId");
+            if (taskId <= 0) return null;
 
-        // 显式发给 Launcher 自己：动态接收器由 LauncherHook 注册，发送身份是 Launcher UID。
-        Intent intent = new Intent(ACTION_OPEN_SMALL_WINDOW);
-        intent.setPackage(context.getPackageName());
-        intent.putExtra(EXTRA_TASK_ID, taskId);
-        intent.putExtra(EXTRA_BOUNDS, taskBounds(taskView));
-        PendingIntent pending = PendingIntent.getBroadcast(
-                context, taskId, intent,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-
-        Icon icon = icon(context);
-        RemoteAction action = new RemoteAction(icon, "小窗", "以自由窗口打开", pending);
-        Class<?> shortcutClass = XposedHelpers.findClassIfExists(
-                "com.android.launcher3.popup.RemoteActionShortcut",
-                taskView.getClass().getClassLoader());
-        if (shortcutClass == null) {
-            XposedBridge.log(TAG + ": RemoteActionShortcut not found");
-            return null;
-        }
-        for (Constructor<?> ctor : shortcutClass.getDeclaredConstructors()) {
-            Class<?>[] p = ctor.getParameterTypes();
-            if (p.length != 4) continue;
-            if (!p[0].getName().equals("android.app.RemoteAction")) continue;
-            if (!View.class.isAssignableFrom(p[3])) continue;
+            Object itemInfo = XposedHelpers.getObjectField(shortcuts.get(0), "mItemInfo");
+            // 复制一份，避免菜单复用同一个 ItemInfo 时被改坏。
             try {
-                ctor.setAccessible(true);
-                return ctor.newInstance(action, context, itemInfo, taskView);
-            } catch (Throwable t) {
-                XposedBridge.log(TAG + ": ctor failed " + t);
+                Class<?> ic = itemInfo.getClass();
+                Constructor<?> c = ic.getDeclaredConstructor(ic);
+                c.setAccessible(true);
+                itemInfo = c.newInstance(itemInfo);
+            } catch (Throwable ignored) {}
+            ComponentName top = (ComponentName) XposedHelpers.callMethod(
+                    itemInfo, "getTargetComponent");
+
+            Intent intent = new Intent(VirtualWindowClient.ACTION_OPEN);
+            intent.setPackage("android");
+            intent.putExtra(VirtualWindowClient.EXTRA_TASK_ID, taskId);
+            intent.putExtra(VirtualWindowClient.EXTRA_COMPONENT, top);
+            intent.putExtra(VirtualWindowClient.EXTRA_USER_ID, userId);
+            intent.putExtra(VirtualWindowClient.EXTRA_SOURCE, "recents");
+            PendingIntent pending = PendingIntent.getBroadcast(
+                    context, taskId + 1000, intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+            RemoteAction action = new RemoteAction(icon(context), "小窗", "在悬浮卡片里打开", pending);
+            Class<?> shortcutClass = XposedHelpers.findClassIfExists(
+                    "com.android.launcher3.popup.RemoteActionShortcut",
+                    taskView.getClass().getClassLoader());
+            if (shortcutClass == null) return null;
+            for (Constructor<?> ctor : shortcutClass.getDeclaredConstructors()) {
+                Class<?>[] p = ctor.getParameterTypes();
+                if (p.length != 3 && p.length != 4) continue;
+                if (!p[0].getName().equals("android.app.RemoteAction")) continue;
+                try {
+                    ctor.setAccessible(true);
+                    if (p.length == 4) {
+                        return ctor.newInstance(action, context, itemInfo, null);
+                    }
+                    return ctor.newInstance(action, context, itemInfo);
+                } catch (Throwable ignored) {}
             }
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": build shortcut failed " + t);
         }
         return null;
     }
@@ -239,36 +256,16 @@ public final class LauncherHook {
         }
     }
 
-    /** 运行在 Launcher 进程，所以能用 Launcher 的 START_TASKS_FROM_RECENTS。 */
+    /** 兼容旧路径的接收器；新入口直接把 PendingIntent 发给 system_server。 */
     private static final class TaskLaunchReceiver extends BroadcastReceiver {
         @Override public void onReceive(Context context, Intent intent) {
             if (intent == null || !ACTION_OPEN_SMALL_WINDOW.equals(intent.getAction())) return;
             int taskId = intent.getIntExtra(EXTRA_TASK_ID, -1);
             if (taskId <= 0) return;
-            android.graphics.Rect bounds = intent.getParcelableExtra(EXTRA_BOUNDS);
-            boolean ok = bounds != null
-                    ? SmallWindowBridge.openFromTask(context, taskId, bounds)
-                    : SmallWindowBridge.openFromTask(context, taskId);
-            if (!ok) {
-                Toast.makeText(context, "小窗启动失败，请查看 LSPosed 日志",
-                        Toast.LENGTH_SHORT).show();
-                return;
-            }
-            // startActivityFromRecents 对“已存在的 task”只做 moveTaskToFront，
-            // ActivityOptions 里的 freeform/bounds 不会重新套用。显式通知 SystemUI，
-            // 由 ShellTaskOrganizer + WCT 真正改成 FREEFORM 5 并设 bounds。
-            Intent force = new Intent(ACTION_FORCE_SMALL_SYSTEMUI);
-            force.setPackage("com.android.systemui");
-            force.putExtra(EXTRA_TASK_ID, taskId);
-            if (bounds != null) force.putExtra(EXTRA_BOUNDS, bounds);
-            context.sendBroadcast(force);
-            // 个别 ROM 的 SystemUI 接收器还没起来，补一次 resizeTask 兜底。
-            if (bounds != null) {
-                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                    SmallWindowBridge.resizeTask(context, taskId, bounds);
-                }, 220);
-            }
-            // chrome 由 SystemUI 的原生 CaptionWindowDecoration 接管，不再拉起 App 悬浮窗。
+            ComponentName component = intent.getParcelableExtra("component");
+            boolean ok = VirtualWindowClient.openTask(context, taskId, component, 0);
+            Toast.makeText(context, ok ? "正在打开小窗" : "小窗启动失败",
+                    Toast.LENGTH_SHORT).show();
         }
     }
 }

@@ -8,3 +8,5 @@ dist/
 local.properties
 .idea/
 .DS_Store
+
+debug.keystore

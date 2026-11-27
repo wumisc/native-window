@@ -52,11 +52,29 @@ public final class FreeformLauncher {
                 if (injector != null) call(injector, "setFreeformScale", 0.7f);
             } catch (Throwable ignored) {}
             context.startActivity(intent, options.toBundle());
+            requestChrome(context, packageName, bounds);
             return true;
         } catch (Throwable t) {
             android.util.Log.e("NativeWindow/Launch", "open " + packageName + " failed", t);
             return false;
         }
+    }
+
+    /**
+     * API 35 的 freeform 没有原生 caption，SystemUI 需要知道“刚拉起的是哪个 task”，
+     * 才能把拖动/缩放/关闭外壳贴上去。这里在启动后查询 top task，交给 SystemUI 侧补壳。
+     */
+    private static void requestChrome(Context context, String packageName, Rect bounds) {
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+            try {
+                Intent attach = new Intent(
+                        "io.github.wumisc.nativewindow.action.ATTACH_CHROME");
+                attach.setPackage("com.android.systemui");
+                attach.putExtra("target_pkg", packageName);
+                attach.putExtra("bounds", bounds);
+                context.sendBroadcast(attach);
+            } catch (Throwable ignored) {}
+        }, 700);
     }
 
     public static Rect defaultBounds(Context context) {

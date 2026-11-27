@@ -46,14 +46,14 @@ cp "$OUT/base.apk" "$OUT/withdex.apk"
 (cd "$OUT" && zip -q -j withdex.apk dex/classes.dex)
 "$BT/zipalign" -f 4 "$OUT/withdex.apk" "$OUT/aligned.apk"
 
-KS="$OUT/debug.keystore"
+KS="$ROOT/debug.keystore"
 if [ ! -f "$KS" ]; then
   "$JDK/keytool" -genkeypair -keystore "$KS" -alias androiddebugkey \
     -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 \
     -dname "CN=Android Debug,O=Android,C=US" >/dev/null 2>&1
 fi
 "$BT/apksigner" sign --ks "$KS" --ks-pass pass:android --key-pass pass:android \
-  --out "$DIST/native-window-0.9.0-aosp-first.apk" "$OUT/aligned.apk"
+  --out "$DIST/native-window-1.0.0-alpha1.apk" "$OUT/aligned.apk"
 
-"$BT/apksigner" verify "$DIST/native-window-0.9.0-aosp-first.apk"
-echo "OK: $DIST/native-window-0.9.0-aosp-first.apk"
+"$BT/apksigner" verify "$DIST/native-window-1.0.0-alpha1.apk"
+echo "OK: $DIST/native-window-1.0.0-alpha1.apk"
