@@ -59,19 +59,47 @@ final class HyperOsCaptionDecorator {
     }
 
     private static int taskId(Object decoration) {
-        for (String name : new String[]{"mTaskInfo", "mRunningTaskInfo", "mTask"}) {
+        for (String name : new String[]{"mTaskInfo", "mRunningTaskInfo", "mTask", "mInfo"}) {
             Object o = field(decoration, name);
             if (o == null) continue;
-            int id = intField(o, "taskId", -1);
+            int id = taskIdOf(o);
             if (id > 0) return id;
-            id = intField(o, "mTaskId", -1);
-            if (id > 0) return id;
+        }
+        // 不同 HyperOS 版本的字段名不一定叫 mTaskInfo，直接扫一遍字段。
+        for (java.lang.reflect.Field f : allFields(decoration.getClass())) {
             try {
-                Object r = XposedHelpers.callMethod(o, "getTaskId");
-                if (r instanceof Integer && (Integer) r > 0) return (Integer) r;
+                f.setAccessible(true);
+                Object o = f.get(decoration);
+                if (o == null) continue;
+                String type = o.getClass().getName();
+                if (!type.contains("TaskInfo") && !type.contains("RunningTask")
+                        && !type.endsWith(".Task")) continue;
+                int id = taskIdOf(o);
+                if (id > 0) return id;
             } catch (Throwable ignored) {}
         }
         return intField(decoration, "mTaskId", -1);
+    }
+
+    private static int taskIdOf(Object o) {
+        int id = intField(o, "taskId", -1);
+        if (id > 0) return id;
+        id = intField(o, "mTaskId", -1);
+        if (id > 0) return id;
+        try {
+            Object r = XposedHelpers.callMethod(o, "getTaskId");
+            if (r instanceof Integer && (Integer) r > 0) return (Integer) r;
+        } catch (Throwable ignored) {}
+        return -1;
+    }
+
+    private static java.util.List<java.lang.reflect.Field> allFields(Class<?> cls) {
+        java.util.List<java.lang.reflect.Field> out = new java.util.ArrayList<>();
+        while (cls != null && cls != Object.class) {
+            for (java.lang.reflect.Field f : cls.getDeclaredFields()) out.add(f);
+            cls = cls.getSuperclass();
+        }
+        return out;
     }
 
     private static String label(Object decoration) {

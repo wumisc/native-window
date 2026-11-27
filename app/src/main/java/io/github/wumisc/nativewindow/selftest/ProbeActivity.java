@@ -22,6 +22,7 @@ public class ProbeActivity extends Activity {
     static final String KEY_OK = "ok";
     static final String KEY_DETAIL = "detail";
     static final String KEY_BOUNDS = "bounds";
+    static final String KEY_BUILD = "build";
     private final Handler main = new Handler(Looper.getMainLooper());
 
     @Override
@@ -68,6 +69,11 @@ public class ProbeActivity extends Activity {
             sub.setTextColor(Palette.danger(this));
         }
         main.postDelayed(this::finish, 1400);
+    }
+
+    static void writeBuild(Context context, String detail) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putString(KEY_BUILD, detail).apply();
     }
 
     static void write(Context context, boolean ok, String detail, Rect bounds) {

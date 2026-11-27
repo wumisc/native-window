@@ -31,29 +31,44 @@ public final class HyperOsSystemUiHook {
 
     public static void install(XC_LoadPackage.LoadPackageParam lp) {
         if (!HyperOsDetect.isHyperOs(lp.classLoader)) return;
-        Class<?> base = first(lp.classLoader,
+        // HyperOS 4 的顶栏实际是 MiuiTopDecoration；HyperOS 3 及更早才是
+        // MiuiBaseWindowDecoration。两个都试，哪个存在挂哪个。
+        String[] candidates = new String[]{
+                "com.android.wm.shell.multitasking.miuimultiwinswitch.miuiwindowdecor.MiuiTopDecoration",
+                "com.android.wm.shell.multitasking.miuimultiwinswitch.miuiwindowdecor.decoration.MiuiDecorationDot",
                 "com.android.wm.shell.multitasking.miuimultiwinswitch.miuiwindowdecor.MiuiBaseWindowDecoration",
-                "com.android.wm.shell.miuimultiwinswitch.miuiwindowdecor.MiuiBaseWindowDecoration");
-        if (base == null) {
-            XposedBridge.log(TAG + ": MiuiBaseWindowDecoration not found");
-            return;
-        }
-        try {
-            XposedBridge.hookAllMethods(base, "createTopCaption", new XC_MethodHook() {
-                @Override protected void afterHookedMethod(MethodHookParam param) {
-                    try {
-                        if (param.getResult() instanceof View) {
-                            HyperOsCaptionDecorator.decorate(
-                                    param.thisObject, (View) param.getResult());
+                "com.android.wm.shell.miuimultiwinswitch.miuiwindowdecor.MiuiBaseWindowDecoration",
+        };
+        int hooked = 0;
+        for (String name : candidates) {
+            Class<?> cls = XposedHelpers.findClassIfExists(name, lp.classLoader);
+            if (cls == null) {
+                XposedBridge.log(TAG + ": missing " + name);
+                continue;
+            }
+            XposedBridge.log(TAG + ": found " + name);
+            try {
+                XposedBridge.hookAllMethods(cls, "createTopCaption", new XC_MethodHook() {
+                    @Override protected void afterHookedMethod(MethodHookParam param) {
+                        try {
+                            if (param.getResult() instanceof View) {
+                                HyperOsCaptionDecorator.decorate(
+                                        param.thisObject, (View) param.getResult());
+                            }
+                        } catch (Throwable t) {
+                            XposedBridge.log(TAG + ": decorate failed " + t);
                         }
-                    } catch (Throwable t) {
-                        XposedBridge.log(TAG + ": decorate failed " + t);
                     }
-                }
-            });
-            XposedBridge.log(TAG + ": HyperOS top caption hooked");
-        } catch (Throwable t) {
-            XposedBridge.log(TAG + ": hook top caption failed " + t);
+                });
+                hooked++;
+            } catch (Throwable t) {
+                XposedBridge.log(TAG + ": hook " + name + " failed " + t);
+            }
+        }
+        if (hooked == 0) {
+            XposedBridge.log(TAG + ": no HyperOS top caption class found");
+        } else {
+            XposedBridge.log(TAG + ": HyperOS top caption hooked (" + hooked + ")");
         }
     }
 

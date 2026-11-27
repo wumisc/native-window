@@ -4,6 +4,17 @@
 > 目标设备：**PixelOS 17 / LineageOS 17**（Android 17，API 37）。  
 > 形态：**LSPosed + Root**，AGPL-3.0。
 
+## 0.7.0-hyperos4-freeform：先让 HyperOS 4 真的进小窗
+
+- system_server 已确认加载：`NativeWindow/SS: hooked`、`HyperOS-SS: HyperOS freeform gates installed`
+- SystemUI 的 AOSP caption 已加载，但 HyperOS 顶栏类之前找错了：HyperOS 4 实际是
+  `com.android.wm.shell.multitasking.miuimultiwinswitch.miuiwindowdecor.MiuiTopDecoration`，
+  不是 `MiuiBaseWindowDecoration`。0.7.0 同时尝试 Top/Base/DecorationDot。
+- 探针改成标准 launch（去掉 `singleInstance` + `MULTIPLE_TASK`），并在
+  `ActivityStarterInjector#modifyLaunchActivityOptionIfNeed` 对 ProbeActivity 强制写
+  FREEFORM=5 + bounds，避免 App 自己传的 options 被 HyperOS 重算回全屏。
+- 自检页会显示 ActivityOptions 的 `mode`、`bounds`、`miuiFlag`、`scale` 实际值。
+
 ## 0.6.2-scope：恢复 LSPosed 推荐应用
 
 0.6.1 只声明了 `xposedmodule`，没有声明 `xposedscope`，所以 LSPosed 作用域页没有“推荐应用”。

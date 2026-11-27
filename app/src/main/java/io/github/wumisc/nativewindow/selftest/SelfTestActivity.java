@@ -211,6 +211,8 @@ public class SelfTestActivity extends Activity {
             long time = p.getLong("time", 0);
             hyperProbeOk = p.getBoolean(ProbeActivity.KEY_OK, false);
             hyperProbeDetail = p.getString(ProbeActivity.KEY_DETAIL, "no probe result");
+            String build = p.getString(ProbeActivity.KEY_BUILD, "");
+            if (!build.isEmpty()) add("启动参数", true, build);
             if (time <= 0) {
                 add("探针结果", false, "没有收到 ProbeActivity 的测量结果；ActivityOptions 可能被 HyperOS 拒绝");
             } else {

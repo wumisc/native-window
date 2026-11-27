@@ -66,7 +66,7 @@ public class MainActivity extends Activity {
         root.addView(title);
 
         TextView version = new TextView(this);
-        version.setText("0.5.0 LOG / DARK  ·  ANDROID 17  ·  WMShell");
+        version.setText("0.7.0 HYPEROS 4  ·  FREEFORM PROBE  ·  ANDROID 17");
         version.setTextColor(Palette.tertiary(this));
         version.setTextSize(11);
         version.setLetterSpacing(0.12f);
@@ -74,7 +74,7 @@ public class MainActivity extends Activity {
         root.addView(version);
 
         TextView intro = new TextView(this);
-        intro.setText("0.5.0 把胶囊塞进 SystemUI 的原生 CaptionWindowDecoration：胶囊和 Task surface 一起移动、裁剪、圆角，拖动不再出现“胶囊先动、窗口后动”。\n\n开窗仍在 Launcher 进程用 START_TASKS_FROM_RECENTS 打开 WINDOWING_MODE_FREEFORM=5。下方预览只是视觉基线；真实小窗请从最近任务菜单的“小窗”进入。LSPosed 作用域需勾选：系统框架、SystemUI、Pixel/LOS 桌面。");
+        intro.setText("0.7.0 先解决 HyperOS 4 的真实 freeform 链路：system_server 放开 MIUI freeform 门禁，SystemUI 同时尝试 MiuiTopDecoration / MiuiBaseWindowDecoration 原生顶栏。打开 App 会自动跑探针，不需要点按钮；结果页会显示 ActivityOptions 的实际参数。LSPosed 作用域：系统框架、SystemUI、HyperOS 桌面。");
         intro.setTextColor(Palette.secondary(this));
         intro.setTextSize(14);
         intro.setLineSpacing(dp(5), 1f);

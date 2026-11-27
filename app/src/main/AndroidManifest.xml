@@ -1,7 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.wumisc.nativewindow"
-    android:versionCode="9"
-    android:versionName="0.6.2-scope">
+    android:versionCode="10"
+    android:versionName="0.7.0-hyperos4-freeform">
 
     <uses-sdk android:minSdkVersion="34" android:targetSdkVersion="37" />
 
@@ -41,7 +41,6 @@
             android:name=".selftest.ProbeActivity"
             android:exported="false"
             android:excludeFromRecents="true"
-            android:launchMode="singleInstance"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden"
             android:theme="@style/AppTheme" />
 

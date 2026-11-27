@@ -26,9 +26,9 @@ public final class HyperOsFreeform {
     public static boolean launchProbe(Context context) {
         try {
             Intent intent = new Intent(context, ProbeActivity.class);
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-                    | Intent.FLAG_ACTIVITY_MULTIPLE_TASK
-                    | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
+            // 探针只保留 NEW_TASK：MULTIPLE_TASK + singleInstance 会让
+            // HyperOS 的 freeform 启动判定直接退回全屏。
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             Bundle options = buildOptions(context);
             context.startActivity(intent, options);
             return true;
@@ -41,15 +41,43 @@ public final class HyperOsFreeform {
     private static Bundle buildOptions(Context context) {
         ActivityOptions options = ActivityOptions.makeBasic();
         Rect rect = freeformRect(context);
-        invoke(options, "setLaunchWindowingMode", new Class[]{int.class}, 5);
-        invoke(options, "setMiuiConfigFlag", new Class[]{int.class}, 2);
-        invoke(options, "setLaunchBounds", new Class[]{Rect.class}, rect);
+        StringBuilder steps = new StringBuilder();
         try {
-            Object injector = invoke(options, "getActivityOptionsInjector", new Class[]{});
+            // setLaunchWindowingMode 是 hidden API，只能反射；直接编译会找不到符号。
+            Object mode = invoke(options, "setLaunchWindowingMode",
+                    new Class[]{int.class}, 5);
+            options.setLaunchBounds(rect);
+            Object current = invoke(options, "getLaunchWindowingMode", new Class[]{});
+            steps.append("mode=").append(current)
+                    .append(" bounds=").append(rect.flattenToString());
+        } catch (Throwable t) {
+            steps.append("windowing api failed=").append(t);
+        }
+        try {
+            Method m = ActivityOptions.class.getDeclaredMethod(
+                    "setMiuiConfigFlag", int.class);
+            m.setAccessible(true);
+            m.invoke(options, 2);
+            steps.append(" miuiFlag=2");
+        } catch (Throwable t) {
+            steps.append(" miuiFlag failed=").append(t);
+        }
+        try {
+            Method m = ActivityOptions.class.getDeclaredMethod(
+                    "getActivityOptionsInjector");
+            m.setAccessible(true);
+            Object injector = m.invoke(options);
             if (injector != null) {
-                invoke(injector, "setFreeformScale", new Class[]{float.class}, 0.7f);
+                Method s = injector.getClass().getDeclaredMethod(
+                        "setFreeformScale", float.class);
+                s.setAccessible(true);
+                s.invoke(injector, 0.7f);
+                steps.append(" scale=0.7");
             }
-        } catch (Throwable ignored) {}
+        } catch (Throwable t) {
+            steps.append(" scale failed=").append(t);
+        }
+        ProbeActivity.writeBuild(context, steps.toString());
         return options.toBundle();
     }
 
